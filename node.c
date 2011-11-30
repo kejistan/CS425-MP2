@@ -26,6 +26,8 @@ struct mp2_node prv_node;
 
 struct mp2_node *finger_table;
 
+void recv_handler();
+
 void init_socket()
 {
 	struct sockaddr_in servaddr;
@@ -93,6 +95,38 @@ int udp_send(struct mp2_node node, char *message, struct mp2_node return_node)
 	return 0;
 }
 
+void start_add_new_node(char *buf)
+{
+	int new_node_id, pid, exec_retval;
+	char parent_port[20];
+	char m_bit_value[5];
+	char new_node_id_s[10];
+
+	buf = strstr(buf, " ");
+
+	if (buf == NULL)
+		return;
+
+	new_node_id = atoi(buf);
+	
+	if (new_node_id < 1)
+		return;
+
+	snprintf(parent_port, 19, "%d", my_port);
+	snprintf(m_bit_value, 4, "%d", m_value);
+	snprintf(new_node_id_s, 9, "%d", new_node_id);
+
+	pid = vfork();
+
+	if (pid == 0)
+	{
+		exec_retval = execl(MP2_NODE_EXEC,  MP2_NODE_EXEC, m_bit_value, new_node_id_s, parent_port, (char *) 0);
+	}
+
+}
+
+
+
 void recv_handler()
 {
 	struct sockaddr_in fromaddr;
@@ -100,7 +134,6 @@ void recv_handler()
 	int nbytes;
 	enum rpc_opcode cmd;
 	char buf[1000];
-	char *str;
 #ifdef DEBUG
 	FILE *f;
 	char filename[20];
@@ -123,7 +156,7 @@ void recv_handler()
 #ifdef DEBUG
 		f = fopen(filename, "a+");
 
-		fprintf(f, "%s\n", buf);
+		fprintf(f, "%d: %s\n", my_id, buf);
 		fclose(f);
 #endif
 
@@ -135,6 +168,13 @@ void recv_handler()
 			case l_quit:
 				exit(1);
 				break;
+
+			case l_add_node:
+				start_add_new_node(buf);
+				break;
+
+			case l_set_node_zero_port:
+
 
 			default:
 				break;

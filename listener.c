@@ -11,7 +11,6 @@
 
 #include "mp2.h"
 
-#define MP2_NODE_EXEC "mp2_node"
 
 int listener_port;
 int node_zero_port;
@@ -83,7 +82,7 @@ void node_zero_init()
 	snprintf(passed_port, 19, "%d", listener_port);
 	snprintf(m_bit_value, 4, "%d", m_value);
 
-	pid = fork();
+	pid = vfork();
 
 	if (pid == 0)
 	{

@@ -1,6 +1,7 @@
 #ifndef MP2_H
 #define MP2_H
 
+#define MP2_NODE_EXEC "mp2_node"
 
 struct mp2_message
 {
