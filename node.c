@@ -9,24 +9,55 @@
 
 #include "mp2.h"
 
+/**
+ * Some debug related functions (and related variables)
+ */
+#ifdef DEBUG
+FILE *gLogFile;
+char gLogName[20];
+
+#define dbg(...) fprintf(gLogFile, __VA_ARGS__)
+#define dbg_init() do {                            \
+		snprintf(gLogName, 19, "l_%d.txt", my_id); \
+		gLogFile = fopen(gLogName, "a+");          \
+	} while(0)
+#define dbg_message(msg) do {                                                  \
+	fprintf(gLogFile, "Message {\n\tType: %d\n\tSource: %u:%u"                 \
+	        "\n\tReturn: %u:%u\n\tDestination: %u\n\tContent: %s"              \
+	        "\n\tNext: %p\n}\n", msg->type, msg->source_node.id,              \
+	        msg->source_node.port, msg->return_node.id, msg->return_node.port, \
+	        msg->destination, msg->content, msg->next); \
+	} while (0)
+
+#else
+
+#define dbg(...)
+#define dbg_init()
+#define dbg_message(msg)
+
+#endif
+
 int sock;
 
-int my_id;
-int my_port;
+id_t my_id;
+port_t my_port;
 
 int m_value;
 
 char joined_flag;
 char adding_node_flag;
+char has_no_peers = 1;
 
-struct mp2_message *message_buffer; 
+struct mp2_message *message_buffer;
 
 struct mp2_node next_node;
-struct mp2_node prv_node;
+struct mp2_node prev_node;
 
 struct mp2_node *finger_table;
 
 void recv_handler();
+void message_recieve(const char *buf, ...);
+void forward_message(const message_t *message);
 
 void init_socket()
 {
@@ -108,7 +139,7 @@ void start_add_new_node(char *buf)
 		return;
 
 	new_node_id = atoi(buf);
-	
+
 	if (new_node_id < 1)
 		return;
 
@@ -125,7 +156,22 @@ void start_add_new_node(char *buf)
 
 }
 
+/**
+ * Returns non zero if this node is the destination
+ */
+int is_destination(id_t dest)
+{
+	return has_no_peers || (dest <= my_id && dest > prev_node.id);
+}
 
+/**
+ * Returns non zero if the message has taken an invalid path
+ */
+int invalid_message_path(const message_t *message)
+{
+	// XXX Unimplemented currently
+	return 0;
+}
 
 void recv_handler()
 {
@@ -134,12 +180,6 @@ void recv_handler()
 	int nbytes;
 	enum rpc_opcode cmd;
 	char buf[1000];
-#ifdef DEBUG
-	FILE *f;
-	char filename[20];
-
-	snprintf(filename, 19, "l_%d.txt", my_id);
-#endif
 
 	while (1)
 	{
@@ -153,12 +193,7 @@ void recv_handler()
 			continue;
 		}
 
-#ifdef DEBUG
-		f = fopen(filename, "a+");
-
-		fprintf(f, "%d: %s\n", my_id, buf);
-		fclose(f);
-#endif
+		dbg("%d: %s\n", my_id, buf);
 
 		// Handle sanitization and printout here.
 		cmd = atoi(buf);
@@ -177,6 +212,7 @@ void recv_handler()
 
 
 			default:
+				message_recieve(buf);
 				break;
 		}
 
@@ -184,6 +220,122 @@ void recv_handler()
 
 }
 
+/**
+ * Parse a character buffer into a message object, returns the new object which
+ * must be free'd by the caller.
+ */
+message_t *parse_message(const char *buf)
+{
+	message_t *message = malloc(sizeof(message_t));
+	message->type = atoi(buf);
+
+	for (; *buf && *buf == ' '; ++buf); // Skip leading spaces (invalid)
+	for (; *buf && *buf != ' '; ++buf); // Skip to first whitespace
+	for (; *buf && *buf == ' '; ++buf); // Skip whitespace (should just be one)
+
+	message->source_node.id = atoi(buf);
+
+	for (; *buf && *buf != ' '; ++buf); // Skip to next white space
+	for (; *buf && *buf == ' '; ++buf); // Skip over white space (should just be one)
+
+	message->source_node.id = atoi(buf);
+
+	for (; *buf && *buf != ' '; ++buf); // Skip to next white space
+	for (; *buf && *buf == ' '; ++buf); // Skip over white space (should just be one)
+
+	message->source_node.port = atoi(buf);
+
+	for (; *buf && *buf != ' '; ++buf); // Skip to next white space
+	for (; *buf && *buf == ' '; ++buf); // Skip over white space (should just be one)
+
+	message->return_node.id = atoi(buf);
+
+	for (; *buf && *buf != ' '; ++buf); // Skip to next white space
+	for (; *buf && *buf == ' '; ++buf); // Skip over white space (should just be one)
+
+	message->return_node.port = atoi(buf);
+
+	for (; *buf && *buf != ' '; ++buf); // Skip to next white space
+	for (; *buf && *buf == ' '; ++buf); // Skip over white space (should just be one)
+
+	message->destination = atoi(buf);
+
+	for (; *buf && *buf != ' '; ++buf); // Skip to next white space
+	for (; *buf && *buf == ' '; ++buf); // Skip over white space (should just be one)
+
+	message->content = strdup(buf); // The remainder of the message is "content"
+
+	message->next = NULL;
+
+	return message;
+}
+
+/**
+ * Free a message
+ */
+void free_message(message_t *message)
+{
+	free(message->content);
+	free(message);
+}
+
+/**
+ * Handles recieved node to node messages by either forwarding the message closer
+ * to its destination node, or if it is the destination by handling the contents
+ * @todo implement finger table correction
+ */
+void message_recieve(const char *buf, ...)
+{
+	message_t *message = parse_message(buf);
+	if (message->type <= node_commands || message->type >= last_rpc_opcode) {
+		fprintf(stderr, "Recieved invalid message type %u:\n%s\n", message->type, buf);
+		goto end;
+	}
+
+	if (!is_destination(message->destination)) {
+		if (invalid_message_path(message)) {
+			assert(!"Finger table correction unimplemented!");
+		}
+
+		forward_message(message);
+	} else {
+		// We are the intended recipient
+		switch (message->type) {
+		default:
+			dbg("Recieved:\n");
+			dbg_message(message);
+			break;
+		}
+	}
+
+end:
+	free_message(message);
+}
+
+/**
+ * Send a message to destination
+ */
+void message(id_t destination, int type, char *content, port_t return_port)
+{
+	message_t message;
+	message.type = type;
+	message.source_node.id = my_id;
+	message.source_node.port = my_port;
+	message.return_node.id = my_id;
+	message.return_node.port = return_port;
+	message.content = content;
+	message.destination = destination;
+
+	forward_message(&message);
+}
+
+/**
+ * Perform the actual sending of a message to the "closest" node we know of
+ */
+void forward_message(const message_t *message)
+{
+	assert(!"forward_message() is unimplemented!");
+}
 
 int main(int argc, char *argv[])
 {
@@ -194,7 +346,7 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "%s: Incorrect number of arguments, %d\n", argv[0], argc);
 		exit(1);
 	}
-	
+
 	m_value = atoi(argv[1]);
 
 	if (m_value < 5 || m_value > 10)
@@ -211,6 +363,8 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "Report port is incorrect\n");
 		exit(1);
 	}
+
+	dbg_init();
 
 	init_socket();
 

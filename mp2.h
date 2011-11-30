@@ -3,17 +3,24 @@
 
 #define MP2_NODE_EXEC "mp2_node"
 
-struct mp2_message
-{
-	char *message;
-	struct mp2_message *next;
-};
+typedef uint32_t port_t;
+typedef uint32_t id_t;
 
-struct mp2_node
+typedef struct mp2_node
 {
-	int id;
-	int port;
-};
+	id_t id;
+	port_t port;
+} node_t;
+
+typedef struct mp2_message
+{
+	int type;
+	node_t source_node;
+	node_t return_node;
+	id_t destination;
+	char *content;
+	struct mp2_message *next;
+} message_t;
 
 enum rpc_opcode {
 	nop = 0,
@@ -27,8 +34,9 @@ enum rpc_opcode {
 
 	l_set_node_zero_port, // listener expects "%d %d", cmd, port
 
-
+	l_last_rpc_opcode,
 	node_commands = 32,
+
 	add_node,
 	set_next,
 	set_prev,
@@ -44,7 +52,7 @@ enum rpc_opcode {
 	find_file,
 	file_not_found,
 	quit,
-	
+
 	last_rpc_opcode
 };
 
