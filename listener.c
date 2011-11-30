@@ -178,7 +178,7 @@ void add_new_node(char *nodes)
 		{
 			printf("Adding node %d\n", new_node);
 			snprintf(buf, 99, "%d %d", l_add_node, new_node);
-	//		udp_send(buf);
+			udp_send(buf);
 		}
 		nodes = strstr(nodes, " ");
 		if (nodes == NULL)
@@ -187,6 +187,57 @@ void add_new_node(char *nodes)
 		nodes++;
 	}
 }
+
+void add_new_file(char *args)
+{
+	char *value, buf[256];
+
+	value = strstr(args, " ");
+	if (value != NULL)
+	{
+		snprintf(buf, 255, "%d %s", l_add_file, args);
+		value[0] = 0;
+		value++;
+
+		printf("Adding file '%s' with value '%s'", args, value);
+		udp_send(buf);
+	}
+}
+
+void send_quit_cmd()
+{
+	char buf[20];
+
+	snprintf(buf, 19, "%d", l_quit);
+	udp_send(buf);
+}
+
+void send_find_file_cmd(char *filename)
+{
+	char buf[256];
+
+	snprintf(buf, 255, "%d %s", l_find_file, filename);
+	udp_send(buf);
+}
+
+void send_del_file_cmd(char *filename)
+{
+    char buf[256];
+
+    snprintf(buf, 255, "%d %s", l_del_file, filename);
+    udp_send(buf);
+}
+
+void send_get_table_cmd(char *args)
+{
+	char buf[40];
+	int id;
+
+	id = atoi(args);
+	snprintf(buf, 39, "%d %d", l_get_table, id);
+	udp_send(buf);
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -227,32 +278,46 @@ int main(int argc, char *argv[])
 
 		if (strncmp(str, "ADD_FILE", 8) == 0)
 		{
-			printf("Add file %s\n", str+8);
+			int i = 8;
+
+			for (; i < len; i++)
+			{
+				if (str[i] != ' ' && str[i] != 0)
+				{
+					add_new_file(str+i);
+					break;
+				}
+			}
 		}
 
 		else if (strncmp(str, "ADD_NODE", 8) == 0)
 		{
-			add_new_node(str+9);
+			if (str[8] != '\0' && str[9] != '\0')
+				add_new_node(str+9);
 		}
 
 
 		else if (strncmp(str, "FIND_FILE", 9) == 0)
 		{
-			printf("Find file %s\n", str+9);
+			if (str[9] != '\0' && str[10] != '\0')
+				send_find_file_cmd(str+10);
 		}
 
 		else if (strncmp(str, "DEL_FILE", 8) == 0)
 		{
-			printf("Delete file %s\n", str+9);
+			if (str[8] != '\0' && str[9] != '\0')
+				send_del_file_cmd(str+9);
 		}
 
 		else if (strncmp(str, "GET_TABLE", 9) == 0)
 		{
-			printf("Get table %s\n", str+10);
+			if  (str[9] != '\0' && str[10] != '\0')
+				send_get_table_cmd(str+10);
 		}
 
 		else if (strncmp(str, "QUIT", 4) == 0)
 		{
+			send_quit_cmd();
 			printf("Quitting\n");
 			break;
 		}

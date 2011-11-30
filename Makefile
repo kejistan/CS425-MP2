@@ -1,7 +1,7 @@
 all: listener mp2_node
 
 CC := gcc
-CFLAGS := -Wextra -Wall -g
+CFLAGS := -Wextra -Wall -g -DDEBUG
 
 listener: listener.c
 	$(CC) $(CFLAGS) -pthread -o $@ listener.c

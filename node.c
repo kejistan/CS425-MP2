@@ -93,11 +93,61 @@ int udp_send(struct mp2_node node, char *message, struct mp2_node return_node)
 	return 0;
 }
 
+void recv_handler()
+{
+	struct sockaddr_in fromaddr;
+	socklen_t len;
+	int nbytes;
+	enum rpc_opcode cmd;
+	char buf[1000];
+	char *str;
+#ifdef DEBUG
+	FILE *f;
+	char filename[20];
+
+	snprintf(filename, 19, "l_%d.txt", my_id);
+#endif
+
+	while (1)
+	{
+		len = sizeof(fromaddr);
+		nbytes = recvfrom(sock, buf, 1000, 0, (struct sockaddr *)&fromaddr, &len);
+
+		if (nbytes < 0)
+		{
+			// May want to tell the ring to quit at this point if we have errs like this.
+			fprintf(stderr,"Error in recv from socket\n");
+			continue;
+		}
+
+#ifdef DEBUG
+		f = fopen(filename, "a+");
+
+		fprintf(f, "%s\n", buf);
+		fclose(f);
+#endif
+
+		// Handle sanitization and printout here.
+		cmd = atoi(buf);
+
+		switch (cmd)
+		{
+			case l_quit:
+				exit(1);
+				break;
+
+			default:
+				break;
+		}
+
+	}
+
+}
+
 
 int main(int argc, char *argv[])
 {
 	int report_port;
-
 
 	if (argc < 4)
 	{
@@ -127,11 +177,7 @@ int main(int argc, char *argv[])
 	if (my_id == 0)
 		send_port_to_listener(report_port);
 
-	while (1)
-	{
-
-		sleep(1);
-	}
+	recv_handler();
 
 	return 0;
 }

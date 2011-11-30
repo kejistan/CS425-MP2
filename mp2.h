@@ -21,10 +21,11 @@ enum rpc_opcode {
 	l_add_file,
 	l_del_file,
 	l_find_file,
-	l_get_finger_table,
+	l_get_table,
 	l_quit,
 
-	l_set_node_zero_port,
+	l_set_node_zero_port, // listener expects "%d %d", cmd, port
+
 
 	node_commands = 32,
 	add_node,
