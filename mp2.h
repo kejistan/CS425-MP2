@@ -14,6 +14,38 @@ struct mp2_node
 	int port;
 };
 
+enum rpc_opcode {
+	nop = 0,
+
+	l_add_node = 1,
+	l_add_file,
+	l_del_file,
+	l_find_file,
+	l_get_finger_table,
+	l_quit,
+
+	l_set_node_zero_port,
+
+	node_commands = 32,
+	add_node,
+	set_next,
+	set_prev,
+	add_node_ack,
+	invalidate_finger,
+	update_next,
+	request_transfer,
+	file_transfer,
+	file_ack,
+	join_finished,
+	node_lookup,
+	delete_file,
+	find_file,
+	file_not_found,
+	quit,
+	
+	last_rpc_opcode
+};
+
 
 
 

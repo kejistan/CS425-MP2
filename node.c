@@ -60,6 +60,23 @@ void init_socket()
 
 }
 
+void send_port_to_listener(int ret_port)
+{
+	struct sockaddr_in destaddr;
+
+	memset(&destaddr, 0, sizeof(destaddr));
+	destaddr.sin_family = AF_INET;
+	destaddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	destaddr.sin_port = htons(ret_port);
+
+	char message[32];
+
+	snprintf(message, 31, "%d %d", l_set_node_zero_port, my_port);
+
+	sendto(sock, message, strlen(message)+1, 0, (struct sockaddr *) &destaddr, sizeof(destaddr));
+
+}
+
 int udp_send(struct mp2_node node, char *message, struct mp2_node return_node)
 {
 	//char msg[1000];
@@ -107,12 +124,12 @@ int main(int argc, char *argv[])
 
 	init_socket();
 
+	if (my_id == 0)
+		send_port_to_listener(report_port);
+
 	while (1)
 	{
-		struct mp2_node node;
-		node.port = report_port;
 
-		udp_send(node, "testing\n", node);
 		sleep(1);
 	}
 

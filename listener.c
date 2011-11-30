@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <errno.h>
 
+#include "mp2.h"
 
 #define MP2_NODE_EXEC "mp2_node"
 
@@ -26,7 +27,9 @@ void *net_recv_handler(void *eh)
 	struct sockaddr_in fromaddr;
 	socklen_t len;
 	int nbytes;
+	enum rpc_opcode cmd;
 	char buf[1000];
+	char *str;
 
 	while (1)
 	{
@@ -41,7 +44,28 @@ void *net_recv_handler(void *eh)
 		}
 
 		// Handle sanitization and printout here.
-		printf("recv: %s\n", buf);
+		cmd = atoi(buf);
+
+		switch (cmd)
+		{
+			case l_set_node_zero_port:
+				buf[999] = 0;
+				str = strstr(buf, " ");	
+				if (str != NULL)
+				{
+					str++;
+					node_zero_port = atoi(str);
+					if (node_zero_port > 0)
+					{
+						printf("Setting node zero port to %d\n", node_zero_port);
+					} else
+						node_zero_port = 0;
+				}
+				break;
+
+			default:
+				break;
+		}
 
 	}
 
@@ -51,7 +75,6 @@ void *net_recv_handler(void *eh)
 
 void node_zero_init()
 {
-	struct stat buf;
 	int pid, exec_retval;
 
 	char passed_port[20];
@@ -123,6 +146,48 @@ void listener_net_init()
 
 }
 
+void udp_send(char *msg)
+{
+	if (msg == NULL || node_zero_port == 0)
+		return;
+
+	struct sockaddr_in destaddr;
+
+	memset(&destaddr, 0, sizeof(destaddr));
+	destaddr.sin_family = AF_INET;
+	destaddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	destaddr.sin_port = htons(node_zero_port);
+
+	sendto(sock, msg, strlen(msg)+1, 0, (struct sockaddr *) &destaddr, sizeof(destaddr));
+
+	return;
+}
+
+void add_new_node(char *nodes)
+{
+	char buf[100];
+	int new_node;
+
+	int max_nodes = 1 << m_value;
+
+	while (nodes != NULL)
+	{
+		new_node = atoi(nodes);
+
+		if (new_node > 0 && new_node < max_nodes)
+		{
+			printf("Adding node %d\n", new_node);
+			snprintf(buf, 99, "%d %d", l_add_node, new_node);
+	//		udp_send(buf);
+		}
+		nodes = strstr(nodes, " ");
+		if (nodes == NULL)
+			break;
+
+		nodes++;
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	char str[256];
@@ -167,7 +232,7 @@ int main(int argc, char *argv[])
 
 		else if (strncmp(str, "ADD_NODE", 8) == 0)
 		{
-			printf("Add node %s\n", str+9);
+			add_new_node(str+9);
 		}
 
 
@@ -190,6 +255,12 @@ int main(int argc, char *argv[])
 		{
 			printf("Quitting\n");
 			break;
+		}
+
+		else if (strncmp(str, "SLEEP", 5) == 0)
+		{
+			int secs = atoi(str+6);
+			sleep(secs);
 		}
 
 
