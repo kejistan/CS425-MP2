@@ -2,7 +2,7 @@ all: listener mp2_node
 
 CC := gcc
 
-CFLAGS   += -Wextra -Wall -g -DDEBUG
+CFLAGS   += -Wextra -Wall -g -DDEBUG -std=c99
 CPPFLAGS += -MMD -MP
 
 sources := $(wildcard *.c)
@@ -20,7 +20,7 @@ listener : LDFLAGS += -pthread
 listener : listener.o
 	$(LINK.c) -o $@ $^
 
-mp2_node : node.o util.o
+mp2_node : node.o util.o map.o
 	$(LINK.c) -o $@ $^
 
 clean :

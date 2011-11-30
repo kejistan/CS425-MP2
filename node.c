@@ -9,6 +9,7 @@
 
 #include "mp2.h"
 #include "util.h"
+#include "map.h"
 
 #define kMaxMessageSize 10000
 
