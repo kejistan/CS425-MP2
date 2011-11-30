@@ -10,6 +10,8 @@
 #include "mp2.h"
 #include "util.h"
 
+#define kMaxMessageSize 10000
+
 /**
  * Some debug related functions (and related variables)
  */
@@ -113,16 +115,14 @@ void send_port_to_listener(int ret_port)
 
 }
 
-int udp_send(struct mp2_node node, char *message, struct mp2_node return_node)
+int udp_send(node_t *node, const char *message)
 {
-	//char msg[1000];
-
 	struct sockaddr_in destaddr;
 
 	memset(&destaddr, 0, sizeof(destaddr));
 	destaddr.sin_family = AF_INET;
 	destaddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-	destaddr.sin_port = htons(node.port);
+	destaddr.sin_port = htons(node->port);
 
 	sendto(sock, message, strlen(message)+1, 0, (struct sockaddr *) &destaddr, sizeof(destaddr));
 
@@ -244,7 +244,7 @@ void recv_handler()
  * Parse a character buffer into a message object, returns the new object which
  * must be free'd by the caller.
  */
-message_t *parse_message(const char *buf)
+message_t *unmarshal_message(const char *buf)
 {
 	message_t *message = malloc(sizeof(message_t));
 	message->type = atoi(buf);
@@ -252,11 +252,6 @@ message_t *parse_message(const char *buf)
 	for (; *buf && *buf == ' '; ++buf); // Skip leading spaces (invalid)
 	for (; *buf && *buf != ' '; ++buf); // Skip to first whitespace
 	for (; *buf && *buf == ' '; ++buf); // Skip whitespace (should just be one)
-
-	message->source_node.id = atoi(buf);
-
-	for (; *buf && *buf != ' '; ++buf); // Skip to next white space
-	for (; *buf && *buf == ' '; ++buf); // Skip over white space (should just be one)
 
 	message->source_node.id = atoi(buf);
 
@@ -286,8 +281,31 @@ message_t *parse_message(const char *buf)
 	message->content = strdup(buf); // The remainder of the message is "content"
 
 	message->next = NULL;
+	message->source_node.invalid = 0;
+	message->return_node.invalid = 0;
 
 	return message;
+}
+
+/**
+ * Encode a message to be sent over the network
+ * @return the number of bytes written to buf
+ */
+int marshal_message(char *buf, const message_t *message)
+{
+	assert(!message->source_node.invalid);
+	assert(!message->return_node.invalid);
+
+	int characters = sprintf(buf, "%d %u %u %u %u %u %s", message->type,
+	                         message->source_node.id, message->source_node.port,
+	                         message->return_node.id, message->return_node.port,
+	                         message->destination, message->content);
+	if (characters <= 0) {
+		fprintf(stderr, "Error marshaling message: %s\n", message->content);
+		return 0;
+	}
+
+	return characters;
 }
 
 /**
@@ -306,7 +324,7 @@ void free_message(message_t *message)
  */
 void message_recieve(const char *buf, ...)
 {
-	message_t *message = parse_message(buf);
+	message_t *message = unmarshal_message(buf);
 	if (message->type <= node_commands || message->type >= last_rpc_opcode) {
 		fprintf(stderr, "Recieved invalid message type %u:\n%s\n", message->type, buf);
 		goto end;
@@ -354,7 +372,14 @@ void message(id_t destination, int type, char *content, port_t return_port)
  */
 void forward_message(const message_t *message)
 {
-	assert(!"forward_message() is unimplemented!");
+	char buf[kMaxMessageSize];
+
+	node_t *dest = finger_table + finger_table_index(message->destination);
+	while (dest->invalid) --dest; // Skip invalid entries
+
+	marshal_message(buf, message);
+
+	udp_send(dest, buf);
 }
 
 int main(int argc, char *argv[])

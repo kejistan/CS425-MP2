@@ -10,6 +10,7 @@ typedef struct mp2_node
 {
 	id_t id;
 	port_t port;
+	char invalid;
 } node_t;
 
 typedef struct mp2_message
