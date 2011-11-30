@@ -8,6 +8,7 @@
 #include <fcntl.h>
 
 #include "mp2.h"
+#include "util.h"
 
 /**
  * Some debug related functions (and related variables)
@@ -43,6 +44,7 @@ id_t my_id;
 port_t my_port;
 
 int m_value;
+size_t gMaxNodeCount; // 2^m_value
 
 char joined_flag;
 char adding_node_flag;
@@ -58,6 +60,7 @@ struct mp2_node *finger_table;
 void recv_handler();
 void message_recieve(const char *buf, ...);
 void forward_message(const message_t *message);
+unsigned int finger_table_index(id_t id);
 
 void init_socket()
 {
@@ -171,6 +174,23 @@ int invalid_message_path(const message_t *message)
 {
 	// XXX Unimplemented currently
 	return 0;
+}
+
+/**
+ * Return the nuber of id's between my_id and id in the direction of message flow
+ */
+size_t path_distance_to_id(id_t id)
+{
+	return ((id + gMaxNodeCount) - my_id) % gMaxNodeCount;
+}
+
+/**
+ * Find the index in the finger table that corresponds to the highest id that is
+ * less or equal to target_id.
+ */
+unsigned int finger_table_index(id_t target_id)
+{
+	return log_2(path_distance_to_id(target_id));
 }
 
 void recv_handler()
@@ -354,6 +374,8 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "Incorrect value for m: %d, must be between 5 and 10\n", m_value);
 		exit(1);
 	}
+
+	gMaxNodeCount = 1 << m_value;
 
 	my_id = atoi(argv[2]);
 	report_port = atoi(argv[3]);
