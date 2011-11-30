@@ -11,7 +11,7 @@
 #include "util.h"
 #include "map.h"
 
-#define kMaxMessageSize 10000
+#define kMaxMessageSize 1000
 
 /**
  * Some debug related functions (and related variables)
@@ -28,9 +28,9 @@ char gLogName[20];
 #define dbg_message(msg) do {                                                  \
 	fprintf(gLogFile, "Message {\n\tType: %d\n\tSource: %u:%u"                 \
 	        "\n\tReturn: %u:%u\n\tDestination: %u\n\tContent: %s"              \
-	        "\n\tNext: %p\n}\n", msg->type, msg->source_node.id,              \
+	        "\n\tNext: %p\n}\n", msg->type, msg->source_node.id,               \
 	        msg->source_node.port, msg->return_node.id, msg->return_node.port, \
-	        msg->destination, msg->content, msg->next); \
+	        msg->destination, msg->content, msg->next);                        \
 	} while (0)
 
 #else
@@ -43,7 +43,7 @@ char gLogName[20];
 
 int sock;
 
-id_t my_id;
+node_id_t my_id;
 port_t my_port;
 
 int m_value;
@@ -61,9 +61,15 @@ struct mp2_node prev_node;
 struct mp2_node *finger_table;
 
 void recv_handler();
-void message_recieve(const char *buf, ...);
+void message_recieve(const char *buf, port_t source_port);
+void message(node_id_t destination, int type, char *content, port_t return_port);
 void forward_message(const message_t *message);
-unsigned int finger_table_index(id_t id);
+unsigned int finger_table_index(node_id_t id);
+
+void send_node_lookup(node_id_t lookup_id);
+void send_invalidate_finger(node_id_t invalidate_target,
+                            node_id_t invalidate_destination,
+                            node_t *message_destination);
 
 void init_socket()
 {
@@ -163,9 +169,9 @@ void start_add_new_node(char *buf)
 /**
  * Returns non zero if this node is the destination
  */
-int is_destination(id_t dest)
+int is_destination(node_id_t dest)
 {
-	return has_no_peers || (dest <= my_id && dest > prev_node.id);
+	return has_no_peers || (dest < 0) || (dest <= my_id && dest > prev_node.id);
 }
 
 /**
@@ -180,7 +186,7 @@ int invalid_message_path(const message_t *message)
 /**
  * Return the nuber of id's between my_id and id in the direction of message flow
  */
-size_t path_distance_to_id(id_t id)
+size_t path_distance_to_id(node_id_t id)
 {
 	return ((id + gMaxNodeCount) - my_id) % gMaxNodeCount;
 }
@@ -189,9 +195,59 @@ size_t path_distance_to_id(id_t id)
  * Find the index in the finger table that corresponds to the highest id that is
  * less or equal to target_id.
  */
-unsigned int finger_table_index(id_t target_id)
+unsigned int finger_table_index(node_id_t target_id)
 {
 	return log_2(path_distance_to_id(target_id));
+}
+
+/**
+ * Invalidate finger table entries according to a recieved message
+ */
+void handle_invalidate_finger(message_t *message)
+{
+	invalidate_finger_content_t info;
+	char *buf = message->content;
+	info.target = atoi(buf);
+
+	for (; *buf && *buf == ' '; ++buf); // Skip leading spaces (invalid)
+	for (; *buf && *buf != ' '; ++buf); // Skip to first whitespace
+	for (; *buf && *buf == ' '; ++buf); // Skip whitespace (should just be one)
+
+	info.destination = atoi(buf);
+
+	// Iterate up through the finger table to invalidate all instances of
+	// info.target up to and including the one that holds info.destination
+	// by marking them as invalid and issuing a lookup for the valid target
+	unsigned int table_index = finger_table_index(info.destination);
+	for (size_t i = 0; i <= table_index; ++i) {
+		if (finger_table[i].id == info.target && !finger_table[i].invalid) {
+			finger_table[i].invalid = 1;
+			send_node_lookup(((1 << table_index) + my_id) % gMaxNodeCount);
+		}
+	}
+}
+
+/**
+ * Handle a node_lookup request by replying with the destination id (so that the
+ * requesting node knows what message we are replying to)
+ */
+void handle_node_lookup(message_t *msg)
+{
+	char buf[kMaxMessageSize];
+	snprintf(buf, kMaxMessageSize, "%d", msg->destination);
+	message(msg->source_node.id, node_lookup_ack, buf, my_port);
+}
+
+/**
+ * Handle a node_lookup response by checking our finger table to update the entry
+ */
+void handle_node_lookup_ack(message_t *message)
+{
+	node_id_t dest = atoi(message->content);
+	unsigned int table_index = finger_table_index(dest);
+	if (finger_table[table_index].invalid) {
+		finger_table[table_index].id = message->source_node.id;
+	}
 }
 
 void recv_handler()
@@ -200,12 +256,13 @@ void recv_handler()
 	socklen_t len;
 	int nbytes;
 	enum rpc_opcode cmd;
-	char buf[1000];
+	char buf[kMaxMessageSize];
 
 	while (1)
 	{
 		len = sizeof(fromaddr);
-		nbytes = recvfrom(sock, buf, 1000, 0, (struct sockaddr *)&fromaddr, &len);
+		nbytes = recvfrom(sock, buf, kMaxMessageSize, 0,
+		                  (struct sockaddr *)&fromaddr, &len);
 
 		if (nbytes < 0)
 		{
@@ -233,7 +290,7 @@ void recv_handler()
 
 
 			default:
-				message_recieve(buf);
+				message_recieve(buf, 0); // XXX I don't know how to get the port
 				break;
 		}
 
@@ -297,10 +354,16 @@ int marshal_message(char *buf, const message_t *message)
 	assert(!message->source_node.invalid);
 	assert(!message->return_node.invalid);
 
+	// Handle messages with no content by appending a null terminator
+	const char *content = message->content;
+	if (!content) {
+		content = '\0';
+	}
+
 	int characters = sprintf(buf, "%d %u %u %u %u %u %s", message->type,
 	                         message->source_node.id, message->source_node.port,
 	                         message->return_node.id, message->return_node.port,
-	                         message->destination, message->content);
+	                         message->destination, content);
 	if (characters <= 0) {
 		fprintf(stderr, "Error marshaling message: %s\n", message->content);
 		return 0;
@@ -323,7 +386,7 @@ void free_message(message_t *message)
  * to its destination node, or if it is the destination by handling the contents
  * @todo implement finger table correction
  */
-void message_recieve(const char *buf, ...)
+void message_recieve(const char *buf, port_t source_port)
 {
 	message_t *message = unmarshal_message(buf);
 	if (message->type <= node_commands || message->type >= last_rpc_opcode) {
@@ -332,17 +395,32 @@ void message_recieve(const char *buf, ...)
 	}
 
 	if (!is_destination(message->destination)) {
+		// Check that the sender's finger table isn't out of date
 		if (invalid_message_path(message)) {
-			assert(!"Finger table correction unimplemented!");
+			node_t source;
+			source.id = -1;
+			source.port = source_port;
+			source.invalid = 0;
+			send_invalidate_finger(my_id, message->destination, &source);
 		}
 
+		// send the message on to the next closest node
 		forward_message(message);
 	} else {
 		// We are the intended recipient
+		dbg("Recieved:\n");
+		dbg_message(message);
 		switch (message->type) {
+		invalidate_finger:
+			handle_invalidate_finger(message);
+			break;
+		node_lookup:
+			handle_node_lookup(message);
+			break;
+		node_lookup_ack:
+			handle_node_lookup_ack(message);
+			break;
 		default:
-			dbg("Recieved:\n");
-			dbg_message(message);
 			break;
 		}
 	}
@@ -354,7 +432,7 @@ end:
 /**
  * Send a message to destination
  */
-void message(id_t destination, int type, char *content, port_t return_port)
+void message(node_id_t destination, int type, char *content, port_t return_port)
 {
 	message_t message;
 	message.type = type;
@@ -366,6 +444,27 @@ void message(id_t destination, int type, char *content, port_t return_port)
 	message.destination = destination;
 
 	forward_message(&message);
+}
+
+/**
+ * Send a message invalidating finger entries that would map invalidate_target as
+ * a valid intermediate destination for invalidate_destination.
+ */
+void send_invalidate_finger(node_id_t invalidate_target, node_id_t invalidate_destination,
+                            node_t *message_destination)
+{
+	char content[kMaxMessageSize];
+	snprintf(content, kMaxMessageSize, "%d %d", invalidate_target,
+	         invalidate_destination);
+	message(message_destination->id, invalidate_finger, content, my_port);
+}
+
+/**
+ * Send a message to find which node "owns" lookup_id
+ */
+void send_node_lookup(node_id_t lookup_id)
+{
+	message(lookup_id, node_lookup, NULL, my_port);
 }
 
 /**
