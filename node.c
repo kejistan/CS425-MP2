@@ -288,17 +288,20 @@ void initiate_insert(message_t *recv_msg)
              next_node.port, my_id, my_port);
     udp_send(&new_node, msg);
 
-    snprintf(msg, 99, "%d %d", new_node.id, new_node.port);
-    message(next_node.id, set_prev, msg, my_port);
+    snprintf(msg, 99, "%d %d %d", set_prev, new_node.id, new_node.port);
+    udp_send(&next_node, msg);
 
     has_no_peers = 0;
 
     dbg_finger();
 }
 
-void handle_set_prev(message_t *msg)
+void handle_set_prev(char *msg)
 {
-    sscanf(msg->content, "%d %d", &(prev_node.id), &(prev_node.port));
+    int opcode;
+    sscanf(msg, "%d %d %d", &opcode, &(prev_node.id),
+	    &(prev_node.port));
+
     prev_node.invalid = 0;
 
     dbg_finger();
@@ -470,8 +473,9 @@ void recv_handler()
                 finsh_adding_node(buf);
                 break;
 
-            case set_prev:
-
+	    case set_prev:
+		handle_set_prev(buf);
+		break;
 
             default:
                 message_recieve(buf, 0); // XXX I don't know how to get the port
@@ -497,6 +501,7 @@ message_t *unmarshal_message(const char *buf)
     message->source_node.invalid = 0;
     message->return_node.invalid = 0;
 
+    dbg("unmarshal message\n");
     dbg_message(message);
 
     return message;
@@ -508,6 +513,7 @@ message_t *unmarshal_message(const char *buf)
  */
 int marshal_message(char *buf, const message_t *message)
 {
+    dbg("marshal message\n");
     dbg_message(message);
 
     assert(!message->source_node.invalid);
@@ -581,9 +587,6 @@ void message_recieve(const char *buf, port_t source_port)
                 break;
             case add_node:
                 initiate_insert(message);
-                break;
-            case set_prev:
-                handle_set_prev(message);
                 break;
 
             default:
