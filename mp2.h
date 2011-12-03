@@ -48,7 +48,7 @@ enum rpc_opcode {
 	node_commands = 32,
 
 	add_node,
-	set_next,
+	stitch_node,
 	set_prev,
 	add_node_ack,
 	invalidate_finger,
