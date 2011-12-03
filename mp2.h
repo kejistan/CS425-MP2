@@ -42,15 +42,16 @@ enum rpc_opcode {
 
 	l_last_rpc_opcode,
 
+	node_oob_commands = 32,
 	start_add_node,
 	single_node_add_resp,
-
-	node_commands = 32,
-
-	add_node,
 	stitch_node,
-	set_prev,
 	add_node_ack,
+	last_oob_opcode,
+
+	node_messages = 48,
+	add_node,
+	set_prev,
 	invalidate_finger,
 	update_next,
 	request_transfer,
@@ -64,7 +65,7 @@ enum rpc_opcode {
 	file_not_found,
 	quit,
 
-	last_rpc_opcode
+	last_message_opcode
 };
 
 #endif

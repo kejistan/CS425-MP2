@@ -158,14 +158,6 @@ void send_port_to_listener(int ret_port)
            sizeof(destaddr));
 }
 
-void invalidate_finger_table()
-{
-    int i;
-
-    for (i = 1; i < m_value; i++)
-        finger_table[i].invalid = 1;
-}
-
 int udp_send(node_t *node, const char *message)
 {
     struct sockaddr_in destaddr;
@@ -199,7 +191,7 @@ void start_node_add(char *buf)
     char *msg = strstr(buf, " ");
     msg++;
 
-    dbg("Starting node add");
+    dbg("Starting node add\n");
 
     if (has_no_peers == 0)
     {
@@ -491,17 +483,20 @@ void recv_handler()
  */
 message_t *unmarshal_message(const char *buf)
 {
+	int n = 0;
 	message_t *message = calloc(sizeof(message_t), 1);
-	message->content = malloc(kMaxMessageSize);
-	if (sscanf(buf, "%d %u %u %u %u %u %s", &message->type,
+	if (sscanf(buf, "%d %u %u %u %u %u %n", &message->type,
 	           &message->source_node.id, &message->source_node.port,
 	           &message->return_node.id, &message->return_node.port,
-	           &message->destination, message->content) != 7) {
+	           &message->destination, &n) != 7) {
 		fprintf(stderr, "Error unmarshaling message: %s\n", buf);
 		free_message(message);
 		return NULL;
 	}
 
+	assert(n > 0);
+
+	message->content = strdup(buf + n);
     message->next = NULL;
     message->source_node.invalid = 0;
     message->return_node.invalid = 0;
@@ -559,7 +554,7 @@ void free_message(message_t *message)
 void message_recieve(const char *buf, port_t source_port)
 {
     message_t *message = unmarshal_message(buf);
-    if (message->type <= node_commands || message->type >= last_rpc_opcode) {
+    if (message->type <= node_messages || message->type >= last_message_opcode) {
         fprintf(stderr, "Recieved invalid message type %u:\n%s\n", message->type, buf);
         goto end;
     }
