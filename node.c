@@ -328,7 +328,7 @@ void handle_stitch_node_message(char *buf)
     dbg_finger();
 }
 
-void finsh_adding_node(char *buf)
+void finish_adding_node(char *buf)
 {
     int opcode;
 
@@ -352,8 +352,8 @@ int is_destination(node_id_t dest)
  */
 int invalid_message_path(const message_t *message)
 {
-    // XXX Unimplemented currently
-    return 0;
+	return path_distance_to_id(message->destination) >
+		path_distance_to_id(message->source_node.id);
 }
 
 /**
@@ -470,7 +470,7 @@ void recv_handler()
                 break;
 
             case add_node_ack:
-                finsh_adding_node(buf);
+                finish_adding_node(buf);
                 break;
 
 	    case set_prev:
