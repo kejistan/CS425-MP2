@@ -28,7 +28,7 @@ char gLogName[20];
 
 #define dbg_init() do {                        \
     snprintf(gLogName, 19, "l_%d.txt", my_id); \
-    gLogFile = fopen(gLogName, "a+");          \
+    gLogFile = fopen(gLogName, "w+");          \
 } while(0)
 
 #define dbg_message(msg) do {                                                      \
@@ -485,11 +485,13 @@ message_t *unmarshal_message(const char *buf)
 {
 	int n = 0;
 	message_t *message = calloc(sizeof(message_t), 1);
-	if (sscanf(buf, "%d %u %u %u %u %u %n", &message->type,
-	           &message->source_node.id, &message->source_node.port,
-	           &message->return_node.id, &message->return_node.port,
-	           &message->destination, &n) != 7) {
-		fprintf(stderr, "Error unmarshaling message: %s\n", buf);
+	int ret = sscanf(buf, "%d %u %u %u %u %u %n", &message->type,
+	                 &message->source_node.id, &message->source_node.port,
+	                 &message->return_node.id, &message->return_node.port,
+	                 &message->destination, &n);
+	if (ret != 6) {
+		fprintf(stderr, "Error unmarshaling message: %s\n"
+		        "\tExpected 7, recieved %d\n", buf, ret);
 		free_message(message);
 		return NULL;
 	}
