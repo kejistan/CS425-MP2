@@ -20,24 +20,48 @@
 FILE *gLogFile;
 char gLogName[20];
 
-#define dbg(...) fprintf(gLogFile, __VA_ARGS__)
+
+#define dbg(...) do { fprintf(gLogFile, __VA_ARGS__); fclose(gLogFile); gLogFile = fopen(gLogName, "a+"); } while (0)
 #define dbg_init() do {                            \
     snprintf(gLogName, 19, "l_%d.txt", my_id); \
     gLogFile = fopen(gLogName, "a+");          \
 } while(0)
-#define dbg_message(msg) do {                                                  \
-    fprintf(gLogFile, "Message {\n\tType: %d\n\tSource: %u:%u"                 \
-            "\n\tReturn: %u:%u\n\tDestination: %u\n\tContent: %s"              \
-            "\n\tNext: %p\n}\n", msg->type, msg->source_node.id,               \
-            msg->source_node.port, msg->return_node.id, msg->return_node.port, \
-            msg->destination, msg->content, msg->next);                        \
+#define dbg_message(msg) do {                                                      \
+    fprintf(gLogFile, "Message {\n\tType: %d\n\tSource: %u:%u:%d"                  \
+            "\n\tReturn: %u:%u:%d\n\tDestination: %u\n\tContent: %s"               \
+            "\n\tNext: %p\n}\n", msg->type, msg->source_node.id,                   \
+            msg->source_node.port, msg->source_node.invalid,                       \
+            msg->return_node.id, msg->return_node.port, msg->return_node.invalid,  \
+            msg->destination, msg->content, msg->next);                            \
+fclose(gLogFile); gLogFile = fopen(gLogName, "a+"); } while (0)
+
+#define dbg_finger() do {                                                          \
+    int debug_iterator;                                                            \
+    assert(finger_table != NULL);                                                  \
+    fprintf(gLogFile, "Next node entry, port: %d, id: %d, invalid: %d\n",          \
+            next_node.port, next_node.id, next_node.invalid);                      \
+    fprintf(gLogFile, "Prev node entry, port: %d, id: %d, invalid: %d\n",          \
+            prev_node.port, prev_node.id, prev_node.invalid);                      \
+    for (debug_iterator = 0; debug_iterator < m_value; debug_iterator++) {         \
+        fprintf(gLogFile, "Finger table entry %d, port: %d, id: %d, invalid %d\n", \
+                debug_iterator, finger_table[debug_iterator].port,                 \
+                finger_table[debug_iterator].id,                                   \
+                finger_table[debug_iterator].invalid); }                           \
+fclose(gLogFile); gLogFile = fopen(gLogName, "a+"); } while (0)
+
+#define dbg_udp(port, msg) do { \
+    fprintf(gLogFile, "UDP message from: %d content: %s\n", port, msg); \
+    fclose(gLogFile); gLogFile = fopen(gLogName, "a+"); \
 } while (0)
+
 
 #else
 
 #define dbg(...)
 #define dbg_init()
 #define dbg_message(msg)
+#define dbg_udp(port, msg)
+#define dbg_finger()
 
 #endif
 
@@ -164,11 +188,15 @@ void start_node_add(char *buf)
     char *msg = strstr(buf, " ");
     msg++;
 
+    dbg("Starting node add");
+
     if (has_no_peers == 0)
     {
         node_id_t id;
 
         id = atoi(msg) - 1;
+
+        dbg("Additional node being added, sending to node: %d\n", id);
 
         message(id, add_node, msg, gListenerPort);
 
@@ -177,14 +205,13 @@ void start_node_add(char *buf)
     {
         node_t node;
         char resp[100];
+        int opcode;
 
-        node.id = atoi(msg);
+        sscanf(buf, "%d %d %d", &opcode, &(node.id), &(node.port));
 
-        msg = strstr(buf, " ");
-        msg++;
-
-        node.port = atoi(msg);
         node.invalid = 0;
+
+        dbg("First node %d being added\n", node.port);
 
         snprintf(resp, 99, "%d %d %d", single_node_add_resp, my_id, my_port);
 
@@ -204,21 +231,18 @@ void start_node_add(char *buf)
         prev_node.invalid = 0;
 
         has_no_peers = 0;
+
+        dbg_finger();
     }
 }
 
 void insert_first_node(char *buf)
 {
     node_t node_zero;
-    char *msg = strstr(buf, " ");
-    msg++;
+    int opcode;
 
-    node_zero.id = atoi(buf);
+    sscanf(buf, "%d %d %d", &opcode, &(node_zero.id), &(node_zero.port));
 
-    msg = strstr(buf, " ");
-    msg++;
-
-    node_zero.port = atoi(buf);
     node_zero.invalid = 0;
 
     finger_table[0].port = node_zero.port;
@@ -235,7 +259,8 @@ void insert_first_node(char *buf)
 
     has_no_peers = 0;
 
-    invalidate_finger_table();
+
+    dbg_finger();
 
 }
 
@@ -257,7 +282,8 @@ void initiate_insert(message_t *recv_msg)
     message(next_node.id, set_prev, msg, my_port);
 
     has_no_peers = 0;
-    invalidate_finger_table();
+
+    dbg_finger();
 
 }
 
@@ -266,7 +292,7 @@ void handle_set_prev(message_t *msg)
     sscanf(msg->content, "%d %d", &(prev_node.id), &(prev_node.port));
     prev_node.invalid = 0;
 
-    invalidate_finger_table();
+    dbg_finger();
 
 }
 
@@ -287,7 +313,7 @@ void handle_stitch_node_message(char *buf)
     udp_send(&prev_node, msg);
 
     has_no_peers = 0;
-    invalidate_finger_table();
+    dbg_finger();
 }
 
 void finsh_adding_node(char *buf)
@@ -299,7 +325,7 @@ void finsh_adding_node(char *buf)
     next_node.invalid = 0;
 
     has_no_peers = 0;
-    invalidate_finger_table();
+    dbg_finger();
 
 }
 
@@ -404,6 +430,8 @@ void recv_handler()
         nbytes = recvfrom(sock, buf, kMaxMessageSize, 0,
                 (struct sockaddr *)&fromaddr, &len);
 
+        dbg_udp(ntohs(fromaddr.sin_port), buf);
+
         if (nbytes < 0)
         {
             // May want to tell the ring to quit at this point if we have errs like this.
@@ -503,6 +531,8 @@ message_t *unmarshal_message(const char *buf)
  */
 int marshal_message(char *buf, const message_t *message)
 {
+    dbg_message(message);
+
     assert(!message->source_node.invalid);
     assert(!message->return_node.invalid);
 
@@ -674,6 +704,8 @@ int main(int argc, char *argv[])
     dbg_init();
 
     init_socket();
+
+    dbg("Initalized, port: %d, id %d\n", my_port, my_id);
 
     next_node.invalid = 1;
     prev_node.invalid = 1;
