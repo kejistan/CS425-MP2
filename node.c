@@ -46,6 +46,8 @@ int sock;
 node_id_t my_id;
 port_t my_port;
 
+port_t gListenerPort;
+
 int m_value;
 size_t gMaxNodeCount; // 2^m_value
 
@@ -136,35 +138,46 @@ int udp_send(node_t *node, const char *message)
 	return 0;
 }
 
-void start_add_new_node(char *buf)
+void start_join(port_t node_zero_port)
 {
-	int new_node_id, pid, exec_retval;
-	char parent_port[20];
-	char m_bit_value[5];
-	char new_node_id_s[10];
+	char buf[100];
+	node_t node;
+	
+	node.id = 0;
+	node.invalid = 0;
+	node.port = node_zero_port;
 
-	buf = strstr(buf, " ");
-
-	if (buf == NULL)
-		return;
-
-	new_node_id = atoi(buf);
-
-	if (new_node_id < 1)
-		return;
-
-	snprintf(parent_port, 19, "%d", my_port);
-	snprintf(m_bit_value, 4, "%d", m_value);
-	snprintf(new_node_id_s, 9, "%d", new_node_id);
-
-	pid = vfork();
-
-	if (pid == 0)
-	{
-		exec_retval = execl(MP2_NODE_EXEC,  MP2_NODE_EXEC, m_bit_value, new_node_id_s, parent_port, (char *) 0);
-	}
+	snprintf(buf, 99, "%d %d %d", start_add_node, my_id, my_port);
+	udp_send(&node, buf);
 
 }
+
+void start_node_add(char *buf)
+{
+	if (has_no_peers == 0)
+	{
+		id_t id;
+
+		char *msg = strstr(buf, " ");
+		msg++;
+
+		id = atoi(msg) - 1;
+
+		message(id, add_node, msg, gListenerPort);
+
+	}
+	else
+	{
+		id_t id;
+		port_t port;
+		char msg[100];
+
+		
+
+
+
+
+		
 
 /**
  * Returns non zero if this node is the destination
@@ -282,12 +295,13 @@ void recv_handler()
 				exit(1);
 				break;
 
-			case l_add_node:
-				start_add_new_node(buf);
+			case start_add_node:
+				start_node_add(buf);
 				break;
 
-			case l_set_node_zero_port:
-
+			case single_node_add_resp:
+				insert_first_node(buf);
+				break;
 
 			default:
 				message_recieve(buf, 0); // XXX I don't know how to get the port
@@ -420,6 +434,10 @@ void message_recieve(const char *buf, port_t source_port)
 		node_lookup_ack:
 			handle_node_lookup_ack(message);
 			break;
+			case add_node:
+				start_add_node(buf);
+				break;
+
 		default:
 			break;
 		}
@@ -516,7 +534,12 @@ int main(int argc, char *argv[])
 	init_socket();
 
 	if (my_id == 0)
+	{
 		send_port_to_listener(report_port);
+		gListenerPort = report_port;
+	}
+	else
+		start_join(report_port);
 
 	recv_handler();
 

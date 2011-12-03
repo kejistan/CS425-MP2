@@ -32,8 +32,7 @@ typedef struct invalidate_finger_content
 enum rpc_opcode {
 	nop = 0,
 
-	l_add_node = 1,
-	l_add_file,
+	l_add_file = 1,
 	l_del_file,
 	l_find_file,
 	l_get_table,
@@ -42,6 +41,10 @@ enum rpc_opcode {
 	l_set_node_zero_port, // listener expects "%d %d", cmd, port
 
 	l_last_rpc_opcode,
+
+	start_add_node,
+	single_node_add_resp,
+
 	node_commands = 32,
 
 	add_node,

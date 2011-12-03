@@ -72,21 +72,15 @@ void *net_recv_handler(void *eh)
 
 }
 
-void node_zero_init()
+void spawn_new_node(char *m_bit_value, char *node_id, char *passed_port)
 {
+
 	int pid, exec_retval;
-
-	char passed_port[20];
-	char m_bit_value[5];
-
-	snprintf(passed_port, 19, "%d", listener_port);
-	snprintf(m_bit_value, 4, "%d", m_value);
-
 	pid = vfork();
 
 	if (pid == 0)
 	{
-		exec_retval = execl(MP2_NODE_EXEC, MP2_NODE_EXEC, m_bit_value, "0", passed_port, (char *) 0);
+		exec_retval = execl(MP2_NODE_EXEC, MP2_NODE_EXEC, m_bit_value, node_id, passed_port, (char *) 0);
 
 	}
 	else
@@ -162,12 +156,32 @@ void udp_send(char *msg)
 	return;
 }
 
+
+void node_zero_init()
+{
+	char passed_port[20];
+	char m_bit_value[5];
+
+	snprintf(passed_port, 19, "%d", listener_port);
+	snprintf(m_bit_value, 4, "%d", m_value);
+
+	spawn_new_node(m_bit_value, "0", passed_port);
+
+}
+
+
+
 void add_new_node(char *nodes)
 {
-	char buf[100];
+	char m_bit_value[5];
+	char node_id[10];
+	char passed_port[10];
 	int new_node;
 
 	int max_nodes = 1 << m_value;
+
+	snprintf(m_bit_value, 4, "%d", m_value);
+	snprintf(passed_port, 9, "%d", node_zero_port);
 
 	while (nodes != NULL)
 	{
@@ -176,8 +190,8 @@ void add_new_node(char *nodes)
 		if (new_node > 0 && new_node < max_nodes)
 		{
 			printf("Adding node %d\n", new_node);
-			snprintf(buf, 99, "%d %d", l_add_node, new_node);
-			udp_send(buf);
+			snprintf(node_id, 10, "%d", new_node);
+			spawn_new_node(m_bit_value, node_id, passed_port);
 		}
 		nodes = strstr(nodes, " ");
 		if (nodes == NULL)
