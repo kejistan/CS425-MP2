@@ -153,8 +153,8 @@ void send_port_to_listener(int ret_port)
 
     snprintf(message, 31, "%d %d", l_set_node_zero_port, my_port);
 
-    sendto(sock, message, strlen(message)+1, 0, (struct sockaddr *) &destaddr, sizeof(destaddr));
-
+    sendto(sock, message, strlen(message)+1, 0, (struct sockaddr *) &destaddr,
+           sizeof(destaddr));
 }
 
 void invalidate_finger_table()
@@ -163,7 +163,6 @@ void invalidate_finger_table()
 
     for (i = 1; i < m_value; i++)
         finger_table[i].invalid = 1;
-
 }
 
 int udp_send(node_t *node, const char *message)
@@ -175,7 +174,8 @@ int udp_send(node_t *node, const char *message)
     destaddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     destaddr.sin_port = htons(node->port);
 
-    sendto(sock, message, strlen(message)+1, 0, (struct sockaddr *) &destaddr, sizeof(destaddr));
+    sendto(sock, message, strlen(message)+1, 0, (struct sockaddr *) &destaddr,
+           sizeof(destaddr));
 
     return 0;
 }
@@ -488,10 +488,14 @@ message_t *unmarshal_message(const char *buf)
 {
 	message_t *message = calloc(sizeof(message_t), 1);
 	message->content = malloc(kMaxMessageSize);
-	sscanf(buf, "%d %u %u %u %u %u %s", &message->type,
-	       &message->source_node.id, &message->source_node.port,
-	       &message->return_node.id, &message->return_node.port,
-	       &message->destination, message->content);
+	if (sscanf(buf, "%d %u %u %u %u %u %s", &message->type,
+	           &message->source_node.id, &message->source_node.port,
+	           &message->return_node.id, &message->return_node.port,
+	           &message->destination, message->content) != 7) {
+		fprintf(stderr, "Error unmarshaling message: %s\n", buf);
+		free_message(message);
+		return NULL;
+	}
 
     message->next = NULL;
     message->source_node.invalid = 0;
@@ -601,16 +605,16 @@ end:
 void message(node_id_t destination, int type, char *content, port_t return_port)
 {
     message_t message;
-    message.type = type;
-    message.source_node.id = my_id;
-    message.source_node.port = my_port;
-    message.return_node.id = my_id;
-    message.return_node.port = return_port;
-    message.content = content;
-    message.destination = destination;
+    message.type                = type;
+    message.source_node.id      = my_id;
+    message.source_node.port    = my_port;
     message.source_node.invalid = 0;
+    message.return_node.id      = my_id;
+    message.return_node.port    = return_port;
     message.return_node.invalid = 0;
-    message.next = NULL;
+    message.content             = content;
+    message.destination         = destination;
+    message.next                = NULL;
 
     forward_message(&message);
 }
