@@ -191,7 +191,6 @@ void start_join(port_t node_zero_port)
 
     snprintf(buf, 99, "%d %d %d", start_add_node, my_id, my_port);
     udp_send(&node, buf);
-
 }
 
 void start_node_add(char *buf)
@@ -272,21 +271,21 @@ void insert_first_node(char *buf)
 
 
     dbg_finger();
-
 }
 
 void initiate_insert(message_t *recv_msg)
 {
-
     node_t new_node;
     char msg[100];
     int opcode;
 
-    sscanf(recv_msg->content, "%d %d %d", &opcode, &(new_node.id), &(new_node.port));
+    sscanf(recv_msg->content, "%d %d %d", &opcode, &(new_node.id),
+           &(new_node.port));
 
     new_node.invalid = 0;
 
-    snprintf(msg, 99, "%d %d %d %d %d", stitch_node, next_node.id, next_node.port, my_id, my_port);
+    snprintf(msg, 99, "%d %d %d %d %d", stitch_node, next_node.id,
+             next_node.port, my_id, my_port);
     udp_send(&new_node, msg);
 
     snprintf(msg, 99, "%d %d", new_node.id, new_node.port);
@@ -295,7 +294,6 @@ void initiate_insert(message_t *recv_msg)
     has_no_peers = 0;
 
     dbg_finger();
-
 }
 
 void handle_set_prev(message_t *msg)
@@ -304,7 +302,6 @@ void handle_set_prev(message_t *msg)
     prev_node.invalid = 0;
 
     dbg_finger();
-
 }
 
 void handle_stitch_node_message(char *buf)
@@ -312,7 +309,8 @@ void handle_stitch_node_message(char *buf)
     int opcode;
     char msg[30];
 
-    sscanf(buf, "%d %d %d %d %d", &opcode, &(next_node.id), &(next_node.port), &(prev_node.id), &(prev_node.port));
+    sscanf(buf, "%d %d %d %d %d", &opcode, &(next_node.id), &(next_node.port),
+           &(prev_node.id), &(prev_node.port));
     next_node.invalid = 0;
     prev_node.invalid = 0;
 
@@ -336,7 +334,6 @@ void finsh_adding_node(char *buf)
 
     has_no_peers = 0;
     dbg_finger();
-
 }
 
 /**
@@ -480,9 +477,7 @@ void recv_handler()
                 message_recieve(buf, 0); // XXX I don't know how to get the port
                 break;
         }
-
     }
-
 }
 
 /**
@@ -491,39 +486,12 @@ void recv_handler()
  */
 message_t *unmarshal_message(const char *buf)
 {
-    message_t *message = malloc(sizeof(message_t));
-    message->type = atoi(buf);
-
-    for (; *buf && *buf == ' '; ++buf); // Skip leading spaces (invalid)
-    for (; *buf && *buf != ' '; ++buf); // Skip to first whitespace
-    for (; *buf && *buf == ' '; ++buf); // Skip whitespace (should just be one)
-
-    message->source_node.id = atoi(buf);
-
-    for (; *buf && *buf != ' '; ++buf); // Skip to next white space
-    for (; *buf && *buf == ' '; ++buf); // Skip over white space (should just be one)
-
-    message->source_node.port = atoi(buf);
-
-    for (; *buf && *buf != ' '; ++buf); // Skip to next white space
-    for (; *buf && *buf == ' '; ++buf); // Skip over white space (should just be one)
-
-    message->return_node.id = atoi(buf);
-
-    for (; *buf && *buf != ' '; ++buf); // Skip to next white space
-    for (; *buf && *buf == ' '; ++buf); // Skip over white space (should just be one)
-
-    message->return_node.port = atoi(buf);
-
-    for (; *buf && *buf != ' '; ++buf); // Skip to next white space
-    for (; *buf && *buf == ' '; ++buf); // Skip over white space (should just be one)
-
-    message->destination = atoi(buf);
-
-    for (; *buf && *buf != ' '; ++buf); // Skip to next white space
-    for (; *buf && *buf == ' '; ++buf); // Skip over white space (should just be one)
-
-    message->content = strdup(buf); // The remainder of the message is "content"
+	message_t *message = calloc(sizeof(message_t), 1);
+	message->content = malloc(kMaxMessageSize);
+	sscanf(buf, "%d %u %u %u %u %u %s", &message->type,
+	       &message->source_node.id, &message->source_node.port,
+	       &message->return_node.id, &message->return_node.port,
+	       &message->destination, message->content);
 
     message->next = NULL;
     message->source_node.invalid = 0;
