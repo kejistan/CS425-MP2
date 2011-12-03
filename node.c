@@ -497,6 +497,8 @@ message_t *unmarshal_message(const char *buf)
     message->source_node.invalid = 0;
     message->return_node.invalid = 0;
 
+    dbg_message(message);
+
     return message;
 }
 
@@ -606,6 +608,9 @@ void message(node_id_t destination, int type, char *content, port_t return_port)
     message.return_node.port = return_port;
     message.content = content;
     message.destination = destination;
+    message.source_node.invalid = 0;
+    message.return_node.invalid = 0;
+    message.next = NULL;
 
     forward_message(&message);
 }
