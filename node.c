@@ -21,11 +21,17 @@ FILE *gLogFile;
 char gLogName[20];
 
 
-#define dbg(...) do { fprintf(gLogFile, __VA_ARGS__); fclose(gLogFile); gLogFile = fopen(gLogName, "a+"); } while (0)
-#define dbg_init() do {                            \
+#define dbg(...) do {                     \
+        fprintf(gLogFile, __VA_ARGS__);   \
+        fclose(gLogFile);                 \
+        gLogFile = fopen(gLogName, "a+"); \
+    } while (0)
+
+#define dbg_init() do {                        \
     snprintf(gLogName, 19, "l_%d.txt", my_id); \
     gLogFile = fopen(gLogName, "a+");          \
 } while(0)
+
 #define dbg_message(msg) do {                                                      \
     fprintf(gLogFile, "Message {\n\tType: %d\n\tSource: %u:%u:%d"                  \
             "\n\tReturn: %u:%u:%d\n\tDestination: %u\n\tContent: %s"               \
@@ -33,7 +39,9 @@ char gLogName[20];
             msg->source_node.port, msg->source_node.invalid,                       \
             msg->return_node.id, msg->return_node.port, msg->return_node.invalid,  \
             msg->destination, msg->content, msg->next);                            \
-fclose(gLogFile); gLogFile = fopen(gLogName, "a+"); } while (0)
+    fclose(gLogFile);                                                              \
+    gLogFile = fopen(gLogName, "a+");                                              \
+    } while (0)
 
 #define dbg_finger() do {                                                          \
     int debug_iterator;                                                            \
@@ -46,12 +54,15 @@ fclose(gLogFile); gLogFile = fopen(gLogName, "a+"); } while (0)
         fprintf(gLogFile, "Finger table entry %d, port: %d, id: %d, invalid %d\n", \
                 debug_iterator, finger_table[debug_iterator].port,                 \
                 finger_table[debug_iterator].id,                                   \
-                finger_table[debug_iterator].invalid); }                           \
-fclose(gLogFile); gLogFile = fopen(gLogName, "a+"); } while (0)
+                finger_table[debug_iterator].invalid);                             \
+    }                                                                              \
+    fclose(gLogFile);                                                              \
+    gLogFile = fopen(gLogName, "a+");                                              \
+    } while (0)
 
-#define dbg_udp(port, msg) do { \
+#define dbg_udp(port, msg) do {                                         \
     fprintf(gLogFile, "UDP message from: %d content: %s\n", port, msg); \
-    fclose(gLogFile); gLogFile = fopen(gLogName, "a+"); \
+    fclose(gLogFile); gLogFile = fopen(gLogName, "a+");                 \
 } while (0)
 
 
@@ -309,7 +320,7 @@ void handle_stitch_node_message(char *buf)
     finger_table[0].port = next_node.port;
     finger_table[0].invalid = 0;
 
-    snprintf(msg, 9, "%d %d %d", add_node_ack, my_id, my_port); 
+    snprintf(msg, 9, "%d %d %d", add_node_ack, my_id, my_port);
     udp_send(&prev_node, msg);
 
     has_no_peers = 0;
@@ -318,7 +329,6 @@ void handle_stitch_node_message(char *buf)
 
 void finsh_adding_node(char *buf)
 {
-
     int opcode;
 
     sscanf(buf, "%d %d %d", &opcode, &(next_node.id), &(next_node.port));
@@ -328,9 +338,6 @@ void finsh_adding_node(char *buf)
     dbg_finger();
 
 }
-
-
-
 
 /**
  * Returns non zero if this node is the destination
