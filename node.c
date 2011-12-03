@@ -20,7 +20,6 @@
 FILE *gLogFile;
 char gLogName[20];
 
-
 #define dbg(...) do {                     \
         fprintf(gLogFile, __VA_ARGS__);   \
         fclose(gLogFile);                 \
@@ -100,8 +99,10 @@ struct mp2_node *finger_table;
 void recv_handler();
 void message_recieve(const char *buf, port_t source_port);
 void message(node_id_t destination, int type, char *content, port_t return_port);
+void free_message(message_t *message);
 void forward_message(const message_t *message);
 unsigned int finger_table_index(node_id_t id);
+size_t path_distance_to_id(node_id_t id);
 
 void send_node_lookup(node_id_t lookup_id);
 void send_invalidate_finger(node_id_t invalidate_target, node_id_t invalidate_destination, node_t *message_destination);
