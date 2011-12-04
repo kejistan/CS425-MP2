@@ -202,6 +202,7 @@ void start_node_add(char *buf)
         char resp[100];
         int opcode;
 
+	adding_node_flag = 1;
         sscanf(buf, "%d %d %d", &opcode, &(node.id), &(node.port));
 
         node.invalid = 0;
@@ -231,6 +232,13 @@ void start_node_add(char *buf)
     }
 }
 
+int handle_request_transfer(message_t *msg)
+{
+    message_direct(msg->return_node.port, join_finished, "", my_port);
+    adding_node_flag = 0;
+    return 0;
+}
+
 void insert_first_node(char *buf)
 {
     node_t node_zero;
@@ -254,20 +262,22 @@ void insert_first_node(char *buf)
 
     has_no_peers = 0;
 
+    message_direct(node_zero.port, request_transfer, "", my_port);
 
     dbg_finger();
 }
 
-int initiate_insert(void *content)
+int initiate_insert(message_t *message)
 {
     node_t new_node;
     char msg[100];
 
+
     if (adding_node_flag) return 1;
     adding_node_flag = 1;
 
-    dbg("Inserting node using content: %s\n", (char *)content);
-    sscanf(content, "%d %d", &new_node.id, &new_node.port);
+    dbg("Inserting node using content: %s\n", message->content);
+    sscanf(message->content, "%d %d", &new_node.id, &new_node.port);
 
     new_node.invalid = 0;
 
@@ -285,6 +295,7 @@ int initiate_insert(void *content)
     prev_node.id = new_node.id;
 
     dbg_finger();
+    message_direct(new_node.port, request_transfer, "", my_port);
 
     return 0;
 }
@@ -627,6 +638,9 @@ void message_recieve(const char *buf, port_t source_port)
 				break;
 			case set_next:
 				no_free = handle_set_next(message);
+				break;
+			case request_transfer:
+				no_free = handle_request_transfer(message);
 				break;
 		    case quit:
 			    no_free = handle_quit();
