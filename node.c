@@ -305,10 +305,10 @@ void initiate_quit(void)
 void handle_set_next(char *msg)
 {
     int opcode;
-    sscanf(msg, "%d %d %d", &opcode, &(prev_node.id),
-	    &(prev_node.port));
+    sscanf(msg, "%d %d %d", &opcode, &(next_node.id),
+	    &(next_node.port));
 
-    prev_node.invalid = 0;
+    next_node.invalid = 0;
 
     dbg_finger();
 }
