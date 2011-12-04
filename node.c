@@ -153,7 +153,6 @@ void init_socket()
 
 void init_finger_table()
 {
-	return;
 	int i;
 
 	dbg("Initalizing finger table\n");
@@ -695,7 +694,6 @@ void message_direct(port_t dest, int type, char *content, port_t return_port)
 void send_invalidate_finger(node_id_t invalidate_target, node_id_t invalidate_destination,
         node_t *message_destination)
 {
-	return;
     char content[kMaxMessageSize];
     snprintf(content, kMaxMessageSize, "%d %d", invalidate_target,
             invalidate_destination);
@@ -724,7 +722,12 @@ void forward_message(const message_t *message)
 
     marshal_message(buf, message);
 
-    udp_send(dest->port, buf);
+	if (message->type == add_node || 
+			message->type == stitch_node || 
+			message->type == set_next)
+		udp_send(finger_table[0].port, buf);
+	else
+	    udp_send(dest->port, buf);
 }
 
 /**
