@@ -304,10 +304,13 @@ void initiate_quit(void)
 void handle_set_next(char *msg)
 {
     int opcode;
-    sscanf(msg, "%d %d %d", &opcode, &(prev_node.id),
-	    &(prev_node.port));
+    sscanf(msg, "%d %d %d", &opcode, &(next_node.id),
+	    &(next_node.port));
 
-    prev_node.invalid = 0;
+    next_node.invalid = 0;
+    finger_table[0].id = next_node.id;
+    finger_table[0].port = next_node.port;
+    finger_table[0].invalid = 0;
 
     dbg_finger();
 }
@@ -325,9 +328,6 @@ void handle_stitch_node_message(char *buf)
     finger_table[0].id = next_node.id;
     finger_table[0].port = next_node.port;
     finger_table[0].invalid = 0;
-
-    snprintf(msg, 9, "%d %d %d", add_node_ack, my_id, my_port);
-    udp_send(prev_node.port, msg);
 
     has_no_peers = 0;
     dbg_finger();
