@@ -62,6 +62,7 @@ enum rpc_opcode {
 	update_next,
 	request_transfer,
 	file_transfer,
+	file_transfer_ack,
 	file_ack,
 	join_finished,
 	node_lookup,

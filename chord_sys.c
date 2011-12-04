@@ -51,8 +51,8 @@ char *remove_from_adding(unsigned key[5])
 	}
 
 	char *filename = current->filename;
-	current->prev->next = current->next;
-	current->next->prev = current->prev;
+	if (current->prev) current->prev->next = current->next;
+	if (current->next) current->next->prev = current->prev;
 	free(current);
 
 	return filename;
@@ -72,11 +72,15 @@ void add_to_adding(unsigned key[5], const char *filename)
 
 void handle_add_file_complete(char *buf)
 {
+	int opcode;
 	unsigned key[5];
 	node_id_t node;
+	node_id_t logical_node;
+	unsigned ignore;
 
-	sscanf(buf, "%u %u %u %u %u %d", &key[0], &key[1], &key[2], &key[3], &key[4],
-	       &node);
+	sscanf(buf, "%d %u %u %u %u %u %u %u %u %u %u %u", &opcode, &node, &ignore,
+	       &ignore, &ignore, &ignore, &key[0], &key[1], &key[2], &key[3],
+	       &key[4], &logical_node);
 
 	char *filename = remove_from_adding(key);
 
@@ -85,8 +89,9 @@ void handle_add_file_complete(char *buf)
 		return;
 	}
 
-	printf("Added file %s with hash %08x%08x%08x%08x%08x to node %d\n", filename,
-	       key[0], key[1], key[2], key[3], key[4], node);
+	printf("Added file %s with hash %08x%08x%08x%08x%08x to node %d with logical"
+	       " node id %d\n", filename, key[0], key[1], key[2], key[3], key[4],
+	       node, logical_node);
 	free(filename);
 }
 
@@ -130,7 +135,7 @@ void *net_recv_handler(void *eh)
 						node_zero_port = 0;
 				}
 				break;
-            case l_add_file_complete:
+            case file_transfer_ack:
 	            handle_add_file_complete(buf);
 	            break;
 
@@ -289,17 +294,20 @@ void add_new_file(char *args)
 	{
 		value[0] = 0;
 		value++;
+		filename = args;
 
-		printf("Adding file '%s' with value '%s'\n", args, value);
+		printf("Adding file '%s' with value '%s'\n", filename, value);
 		SHA1Reset(&gSHAContext);
 		SHA1Input(&gSHAContext, (unsigned char *)args, strlen(args));
 
 		if (SHA1Result(&gSHAContext) == 0) {
-			fprintf(stderr, "Error calculating SHA1 Hash of %s\n", args);
+			fprintf(stderr, "Error calculating SHA1 Hash of %s\n", filename);
 			return;
 		}
 
 		unsigned *key = gSHAContext.Message_Digest;
+
+		add_to_adding(key, filename);
 		snprintf(buf, 255, "%d %u %u %u %u %u %s", l_add_file, key[0], key[1],
 		         key[2], key[3], key[4], value);
 		udp_send(buf);
