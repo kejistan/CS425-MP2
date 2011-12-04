@@ -194,7 +194,7 @@ void start_node_add(char *buf)
     {
         node_id_t id;
 
-        id = atoi(msg) + 1;
+        id = atoi(msg);
 
         dbg("Additional node being added, sending to node: %d\n", id);
 
@@ -309,6 +309,9 @@ void handle_set_next(char *msg)
 	    &(next_node.port));
 
     next_node.invalid = 0;
+    finger_table[0].id = next_node.id;
+    finger_table[0].port = next_node.port;
+    finger_table[0].invalid = 0;
 
     dbg_finger();
 }
@@ -326,9 +329,6 @@ void handle_stitch_node_message(char *buf)
     finger_table[0].id = next_node.id;
     finger_table[0].port = next_node.port;
     finger_table[0].invalid = 0;
-
-    snprintf(msg, 9, "%d %d %d", add_node_ack, my_id, my_port);
-    udp_send(prev_node.port, msg);
 
     has_no_peers = 0;
     dbg_finger();
