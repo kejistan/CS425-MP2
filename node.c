@@ -328,6 +328,14 @@ void initiate_quit(void)
 	message_direct(next_node.port, quit, NULL, my_port);
 }
 
+/**
+ * Start adding a file
+ */
+void initiate_add_file(char *buf)
+{
+	assert(!"Adding files unimplemented!");
+}
+
 int handle_set_next(message_t *msg)
 {
 

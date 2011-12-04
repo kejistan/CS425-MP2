@@ -10,16 +10,85 @@
 #include <errno.h>
 
 #include "mp2.h"
+#include "sha1.h"
 
+typedef struct adding_file
+{
+	char *filename;
+	unsigned key[5];
+	struct adding_file *next;
+	struct adding_file *prev;
+} adding_file_t;
 
 int listener_port;
 int node_zero_port;
 
 int m_value;
 
+SHA1Context gSHAContext;
+adding_file_t *gAddingList;
+
 static int sock;
 
 pthread_t net_recv_thread;
+
+/**
+ * Remove a file from the current adding list by key and return the filename
+ */
+char *remove_from_adding(unsigned key[5])
+{
+	adding_file_t *current = gAddingList;
+	while (current && !(current->key[0] == key[0]
+	                    && current->key[1] == key[1]
+	                    && current->key[2] == key[2]
+	                    && current->key[3] == key[3]
+	                    && current->key[4] == key[4])) {
+		current = current->next;
+	}
+
+	if (!current) {
+		return NULL;
+	}
+
+	char *filename = current->filename;
+	current->prev->next = current->next;
+	current->next->prev = current->prev;
+	free(current);
+
+	return filename;
+}
+
+/**
+ * Add a file to the list of currently adding files
+ */
+void add_to_adding(unsigned key[5], const char *filename)
+{
+	adding_file_t *current = calloc(sizeof(adding_file_t), 1);
+	memcpy(current->key, key, 5 * sizeof(unsigned));
+	current->filename = strdup(filename);
+	current->next = gAddingList;
+	gAddingList = current;
+}
+
+void handle_add_file_complete(char *buf)
+{
+	unsigned key[5];
+	node_id_t node;
+
+	sscanf(buf, "%u %u %u %u %u %d", &key[0], &key[1], &key[2], &key[3], &key[4],
+	       &node);
+
+	char *filename = remove_from_adding(key);
+
+	if (!filename) {
+		fprintf(stderr, "Recieved file add confirmation for unknown file\n");
+		return;
+	}
+
+	printf("Added file %s with hash %08x%08x%08x%08x%08x to node %d\n", filename,
+	       key[0], key[1], key[2], key[3], key[4], node);
+	free(filename);
+}
 
 void *net_recv_handler(void *eh)
 {
@@ -41,6 +110,7 @@ void *net_recv_handler(void *eh)
 			fprintf(stderr,"Error in recv from socket\n");
 			continue;
 		}
+		buf[999] = 0;
 
 		// Handle sanitization and printout here.
 		cmd = atoi(buf);
@@ -48,8 +118,7 @@ void *net_recv_handler(void *eh)
 		switch (cmd)
 		{
 			case l_set_node_zero_port:
-				buf[999] = 0;
-				str = strstr(buf, " ");	
+				str = strstr(buf, " ");
 				if (str != NULL)
 				{
 					str++;
@@ -61,6 +130,9 @@ void *net_recv_handler(void *eh)
 						node_zero_port = 0;
 				}
 				break;
+            case l_add_file_complete:
+	            handle_add_file_complete(buf);
+	            break;
 
 			case l_print:
 				buf[999] = 0;
@@ -166,7 +238,6 @@ void udp_send(char *msg)
 	return;
 }
 
-
 void node_zero_init()
 {
 	char passed_port[20];
@@ -178,8 +249,6 @@ void node_zero_init()
 	spawn_new_node(m_bit_value, "0", passed_port);
 
 }
-
-
 
 void add_new_node(char *nodes)
 {
@@ -213,16 +282,26 @@ void add_new_node(char *nodes)
 
 void add_new_file(char *args)
 {
-	char *value, buf[256];
+	char *value, *filename, buf[256];
 
 	value = strstr(args, " ");
 	if (value != NULL)
 	{
-		snprintf(buf, 255, "%d %s", l_add_file, args);
 		value[0] = 0;
 		value++;
 
-		printf("Adding file '%s' with value '%s'", args, value);
+		printf("Adding file '%s' with value '%s'\n", args, value);
+		SHA1Reset(&gSHAContext);
+		SHA1Input(&gSHAContext, (unsigned char *)args, strlen(args));
+
+		if (SHA1Result(&gSHAContext) == 0) {
+			fprintf(stderr, "Error calculating SHA1 Hash of %s\n", args);
+			return;
+		}
+
+		unsigned *key = gSHAContext.Message_Digest;
+		snprintf(buf, 255, "%d %u %u %u %u %u %s", l_add_file, key[0], key[1],
+		         key[2], key[3], key[4], value);
 		udp_send(buf);
 	}
 }

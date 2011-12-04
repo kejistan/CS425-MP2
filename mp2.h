@@ -36,6 +36,7 @@ enum rpc_opcode {
 	nop = 0,
 
 	l_add_file = 1,
+	l_add_file_complete,
 	l_del_file,
 	l_find_file,
 	l_get_table,
