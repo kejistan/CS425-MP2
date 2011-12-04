@@ -10,6 +10,7 @@
 #include "mp2.h"
 #include "util.h"
 #include "map.h"
+#include "queue.h"
 
 #define kMaxMessageSize 1000
 #define kDirectDestination -1
@@ -97,11 +98,13 @@ node_t prev_node;
 
 struct mp2_node *finger_table;
 
+queue_t *message_queue;
+queue_t *recycle_queue;
+
 void recv_handler();
 void message_recieve(const char *buf, port_t source_port);
 void message(node_id_t destination, int type, char *content, port_t return_port);
 void message_direct(port_t destination, int type, char *content, port_t return_port);
-void free_message(message_t *message);
 void forward_message(const message_t *message);
 unsigned int finger_table_index(node_id_t id);
 size_t path_distance_to_id(node_id_t id);
@@ -188,21 +191,13 @@ void start_node_add(char *buf)
     char *msg = strstr(buf, " ");
     msg++;
 
-    dbg("Starting node add\n");
+    if (has_no_peers == 0) {
+        node_id_t id = atoi(msg);
 
-    if (has_no_peers == 0)
-    {
-        node_id_t id;
-
-        id = atoi(msg) + 1;
-
-        dbg("Additional node being added, sending to node: %d\n", id);
+        dbg("Adding node: %d\n", id);
 
         message(id, add_node, msg, gListenerPort);
-
-    }
-    else
-    {
+    } else {
         node_t node;
         char resp[100];
         int opcode;
@@ -263,22 +258,24 @@ void insert_first_node(char *buf)
     dbg_finger();
 }
 
-void initiate_insert(message_t *recv_msg)
+int initiate_insert(void *content)
 {
     node_t new_node;
     char msg[100];
 
-    dbg("Ii: %s\n", recv_msg->content);
-    sscanf(recv_msg->content, "%d %d", &(new_node.id),
-           &(new_node.port));
+    if (adding_node_flag) return 1;
+    adding_node_flag = 1;
+
+    dbg("Inserting node using content: %s\n", (char *)content);
+    sscanf(content, "%d %d", &new_node.id, &new_node.port);
 
     new_node.invalid = 0;
 
-    snprintf(msg, 99, "%d %d %d %d %d", stitch_node, my_id,
-		my_port, prev_node.id, prev_node.port);
-    udp_send(new_node.port, msg);
-    dbg("sent message (%d): %s\n", new_node.port, msg);
+    dbg("Sending stitch request to: %d\n", new_node.port);
+    snprintf(msg, 99, "%d %d", prev_node.id, prev_node.port);
+    message_direct(new_node.port, stitch_node, msg, my_port);
 
+    // XXX Funkyness here vvv
     snprintf(msg, 99, "%d %d %d", set_next, new_node.id, new_node.port);
     udp_send(next_node.port, msg);
     dbg("sent message (%d): %s\n", prev_node.port, msg);
@@ -289,6 +286,8 @@ void initiate_insert(message_t *recv_msg)
     prev_node.id = new_node.id;
 
     dbg_finger();
+
+    return 0;
 }
 
 /**
@@ -336,7 +335,6 @@ void handle_stitch_node_message(char *buf)
 
 void finish_adding_node(char *buf)
 {
-
     has_no_peers = 0;
     dbg_finger();
 }
@@ -379,7 +377,7 @@ unsigned int finger_table_index(node_id_t target_id)
 /**
  * Invalidate finger table entries according to a recieved message
  */
-void handle_invalidate_finger(message_t *message)
+int handle_invalidate_finger(message_t *message)
 {
     invalidate_finger_content_t info;
     char *buf = message->content;
@@ -401,36 +399,42 @@ void handle_invalidate_finger(message_t *message)
             send_node_lookup(((1 << table_index) + my_id) % gMaxNodeCount);
         }
     }
+
+    return 0;
 }
 
 /**
  * Handle a node_lookup request by replying with the destination id (so that the
  * requesting node knows what message we are replying to)
  */
-void handle_node_lookup(message_t *msg)
+int handle_node_lookup(message_t *msg)
 {
     char buf[kMaxMessageSize];
     snprintf(buf, kMaxMessageSize, "%d", msg->destination);
     message(msg->source_node.id, node_lookup_ack, buf, my_port);
+
+    return 0;
 }
 
 /**
  * Handle a node_lookup response by checking our finger table to update the entry
  */
-void handle_node_lookup_ack(message_t *message)
+int handle_node_lookup_ack(message_t *message)
 {
     node_id_t dest = atoi(message->content);
     unsigned int table_index = finger_table_index(dest);
     if (finger_table[table_index].invalid) {
         finger_table[table_index].id = message->source_node.id;
     }
+
+    return 0;
 }
 
 /**
  * Handle a quit message by forwarding it to any node currently being added and
  * to the next node.
  */
-void handle_quit(void)
+int handle_quit(void)
 {
 	dbg("Recieved quit\n");
 	if (adding_node_flag) {
@@ -439,6 +443,8 @@ void handle_quit(void)
 	message_direct(next_node.port, quit, NULL, my_port);
 
 	exit(0);
+
+	return 0;
 }
 
 void recv_handler()
@@ -517,7 +523,7 @@ message_t *unmarshal_message(const char *buf)
 	if (ret != 6) {
 		fprintf(stderr, "Error unmarshaling message: %s\n"
 		        "\tExpected 7, recieved %d\n", buf, ret);
-		free_message(message);
+		message_free(message);
 		return NULL;
 	}
 
@@ -567,7 +573,7 @@ int marshal_message(char *buf, const message_t *message)
 /**
  * Free a message
  */
-void free_message(message_t *message)
+void message_free(message_t *message)
 {
     free(message->content);
     free(message);
@@ -583,7 +589,8 @@ void message_recieve(const char *buf, port_t source_port)
     message_t *message = unmarshal_message(buf);
     if (message->type <= node_messages || message->type >= last_message_opcode) {
         fprintf(stderr, "Recieved invalid message type %u:\n%s\n", message->type, buf);
-        goto end;
+        message_free(message);
+        return;
     }
 
     if (!is_destination(message->destination)) {
@@ -598,33 +605,50 @@ void message_recieve(const char *buf, port_t source_port)
 
         // send the message on to the next closest node
         forward_message(message);
+        message_free(message);
     } else {
-        // We are the intended recipient
-        dbg("Recieved:\n");
+        // We are the intended recipient, insert it onto our queue
+        dbg("Queued:\n");
         dbg_message(message);
-        switch (message->type) {
-            case invalidate_finger:
-                handle_invalidate_finger(message);
-                break;
-            case node_lookup:
-                handle_node_lookup(message);
-                break;
-            case node_lookup_ack:
-                handle_node_lookup_ack(message);
-                break;
-            case add_node:
-                initiate_insert(message);
-                break;
-            case quit:
-	            handle_quit();
-	            break;
-            default:
-                break;
-        }
-    }
+	    enqueue(message_queue, message);
 
-end:
-    free_message(message);
+	    assert(queue_empty(recycle_queue));
+
+	    while (!queue_empty(message_queue)) {
+		    int no_free = 0;
+		    message = dequeue(message_queue);
+		    switch (message->type) {
+		    case invalidate_finger:
+			    no_free = handle_invalidate_finger(message);
+			    break;
+		    case node_lookup:
+			    no_free = handle_node_lookup(message);
+			    break;
+		    case node_lookup_ack:
+			    no_free = handle_node_lookup_ack(message);
+			    break;
+		    case add_node:
+			    no_free = initiate_insert(message);
+			    break;
+		    case quit:
+			    no_free = handle_quit();
+			    break;
+		    default:
+			    fprintf(stderr, "Recieved unknown message type: %d\n", message->type);
+			    break;
+		    }
+
+		    if (no_free) {
+			    enqueue(recycle_queue, message);
+		    } else {
+			    message_free(message);
+		    }
+	    }
+
+	    queue_t *temp = message_queue;
+	    message_queue = recycle_queue;
+	    recycle_queue = temp;
+    }
 }
 
 /**

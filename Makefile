@@ -20,7 +20,7 @@ listener : LDFLAGS += -pthread
 listener : listener.o
 	$(LINK.c) -o $@ $^
 
-mp2_node : node.o util.o map.o
+mp2_node : node.o util.o map.o queue.o
 	$(LINK.c) -o $@ $^
 
 clean :

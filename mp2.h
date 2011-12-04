@@ -1,6 +1,9 @@
 #ifndef MP2_H
 #define MP2_H
 
+#include <stddef.h>
+#include <stdint.h>
+
 #define MP2_NODE_EXEC "mp2_node"
 
 typedef uint32_t port_t;
@@ -67,5 +70,7 @@ enum rpc_opcode {
 
 	last_message_opcode
 };
+
+void message_free(message_t *message);
 
 #endif
