@@ -12,6 +12,7 @@
 #include "map.h"
 
 #define kMaxMessageSize 1000
+#define kDirectDestination -1
 
 /**
  * Some debug related functions (and related variables)
@@ -99,6 +100,7 @@ struct mp2_node *finger_table;
 void recv_handler();
 void message_recieve(const char *buf, port_t source_port);
 void message(node_id_t destination, int type, char *content, port_t return_port);
+void message_direct(port_t destination, int type, char *content, port_t return_port);
 void free_message(message_t *message);
 void forward_message(const message_t *message);
 unsigned int finger_table_index(node_id_t id);
@@ -158,14 +160,14 @@ void send_port_to_listener(int ret_port)
            sizeof(destaddr));
 }
 
-int udp_send(node_t *node, const char *message)
+int udp_send(port_t dest, const char *message)
 {
     struct sockaddr_in destaddr;
 
     memset(&destaddr, 0, sizeof(destaddr));
     destaddr.sin_family = AF_INET;
     destaddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    destaddr.sin_port = htons(node->port);
+    destaddr.sin_port = htons(dest);
 
     sendto(sock, message, strlen(message)+1, 0, (struct sockaddr *) &destaddr,
            sizeof(destaddr));
@@ -176,14 +178,9 @@ int udp_send(node_t *node, const char *message)
 void start_join(port_t node_zero_port)
 {
     char buf[100];
-    node_t node;
-
-    node.id = 0;
-    node.invalid = 0;
-    node.port = node_zero_port;
 
     snprintf(buf, 99, "%d %d %d", start_add_node, my_id, my_port);
-    udp_send(&node, buf);
+    udp_send(node_zero_port, buf);
 }
 
 void start_node_add(char *buf)
@@ -218,7 +215,7 @@ void start_node_add(char *buf)
 
         snprintf(resp, 99, "%d %d %d", single_node_add_resp, my_id, my_port);
 
-        udp_send(&node, resp);
+        udp_send(node.port, resp);
 
         finger_table[0].port = node.port;
         finger_table[0].id = node.id;
@@ -278,12 +275,12 @@ void initiate_insert(message_t *recv_msg)
     new_node.invalid = 0;
 
     snprintf(msg, 99, "%d %d %d %d %d", stitch_node, my_id,
-             my_port, prev_node.id, prev_node.port);
-    udp_send(&new_node, msg);
-
+		my_port, prev_node.id, prev_node.port);
+    udp_send(new_node.port, msg);
     dbg("sent message (%d): %s\n", new_node.port, msg);
+
     snprintf(msg, 99, "%d %d %d", set_next, new_node.id, new_node.port);
-    udp_send(&next_node, msg);
+    udp_send(next_node.port, msg);
     dbg("sent message (%d): %s\n", prev_node.port, msg);
 
     has_no_peers = 0;
@@ -320,7 +317,7 @@ void handle_stitch_node_message(char *buf)
     finger_table[0].invalid = 0;
 
     snprintf(msg, 9, "%d %d %d", add_node_ack, my_id, my_port);
-    udp_send(&prev_node, msg);
+    udp_send(prev_node.port, msg);
 
     has_no_peers = 0;
     dbg_finger();
@@ -338,7 +335,8 @@ void finish_adding_node(char *buf)
  */
 int is_destination(node_id_t dest)
 {
-    return has_no_peers || (dest < 0) || (dest <= my_id && dest > prev_node.id);
+    return has_no_peers || (dest == kDirectDestination)
+	    || (dest <= my_id && dest > prev_node.id);
 }
 
 /**
@@ -415,6 +413,21 @@ void handle_node_lookup_ack(message_t *message)
     if (finger_table[table_index].invalid) {
         finger_table[table_index].id = message->source_node.id;
     }
+}
+
+/**
+ * Handle a quit message by forwarding it to any node currently being added and
+ * to the next node.
+ */
+void handle_quit(void)
+{
+	dbg("Recieved quit\n");
+	if (adding_node_flag) {
+		message_direct(prev_node.port, quit, NULL, my_port);
+	}
+	message_direct(next_node.port, quit, NULL, my_port);
+
+	exit(0);
 }
 
 void recv_handler()
@@ -591,7 +604,9 @@ void message_recieve(const char *buf, port_t source_port)
             case add_node:
                 initiate_insert(message);
                 break;
-
+            case quit:
+	            handle_quit();
+	            break;
             default:
                 break;
         }
@@ -619,6 +634,28 @@ void message(node_id_t destination, int type, char *content, port_t return_port)
     message.next                = NULL;
 
     forward_message(&message);
+}
+
+/**
+ * Special case to always message a specific node (bypasses the finger table)
+ */
+void message_direct(port_t dest, int type, char *content, port_t return_port)
+{
+	char buf[kMaxMessageSize];
+	message_t message;
+    message.type                = type;
+    message.source_node.id      = my_id;
+    message.source_node.port    = my_port;
+    message.source_node.invalid = 0;
+    message.return_node.id      = my_id;
+    message.return_node.port    = return_port;
+    message.return_node.invalid = 0;
+    message.content             = content;
+    message.destination         = kDirectDestination;
+    message.next                = NULL;
+
+    marshal_message(buf, &message);
+    udp_send(dest, buf);
 }
 
 /**
@@ -654,7 +691,7 @@ void forward_message(const message_t *message)
 
     marshal_message(buf, message);
 
-    udp_send(dest, buf);
+    udp_send(dest->port, buf);
 }
 
 int main(int argc, char *argv[])
