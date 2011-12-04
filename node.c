@@ -275,9 +275,8 @@ int initiate_insert(void *content)
     snprintf(msg, 99, "%d %d", prev_node.id, prev_node.port);
     message_direct(new_node.port, stitch_node, msg, my_port);
 
-    // XXX Funkyness here vvv
-    snprintf(msg, 99, "%d %d %d", set_next, new_node.id, new_node.port);
-    udp_send(next_node.port, msg);
+    snprintf(msg, 99, "%d %d", new_node.id, new_node.port);
+    message_direct(prev_node.port, set_next, msg, my_port);
     dbg("sent message (%d): %s\n", prev_node.port, msg);
 
     has_no_peers = 0;
@@ -301,10 +300,10 @@ void initiate_quit(void)
 	message_direct(next_node.port, quit, NULL, my_port);
 }
 
-void handle_set_next(char *msg)
+int handle_set_next(message_t *msg)
 {
-    int opcode;
-    sscanf(msg, "%d %d %d", &opcode, &(next_node.id),
+
+    sscanf(msg->content, "%d %d", &(next_node.id),
 	    &(next_node.port));
 
     next_node.invalid = 0;
@@ -313,15 +312,15 @@ void handle_set_next(char *msg)
     finger_table[0].invalid = 0;
 
     dbg_finger();
+	return 0;
 }
 
-void handle_stitch_node_message(char *buf)
+int handle_stitch_node_message(message_t *msg)
 {
-    int opcode;
-    char msg[30];
-
-    sscanf(buf, "%d %d %d %d %d", &opcode, &(next_node.id), &(next_node.port),
-           &(prev_node.id), &(prev_node.port));
+    
+	next_node.id = msg->source_node.id;
+	next_node.port = msg->source_node.port;
+    sscanf(msg->content, "%d %d", &(prev_node.id), &(prev_node.port));
     next_node.invalid = 0;
     prev_node.invalid = 0;
 
@@ -331,6 +330,7 @@ void handle_stitch_node_message(char *buf)
 
     has_no_peers = 0;
     dbg_finger();
+	return 0;
 }
 
 void finish_adding_node(char *buf)
@@ -489,17 +489,9 @@ void recv_handler()
                 insert_first_node(buf);
                 break;
 
-            case stitch_node:
-                handle_stitch_node_message(buf);
-                break;
-
             case add_node_ack:
                 finish_adding_node(buf);
                 break;
-
-	    case set_next:
-		handle_set_next(buf);
-		break;
 
             default:
                 message_recieve(buf, 0); // XXX I don't know how to get the port
@@ -630,6 +622,12 @@ void message_recieve(const char *buf, port_t source_port)
 		    case add_node:
 			    no_free = initiate_insert(message);
 			    break;
+			case stitch_node:
+				no_free = handle_stitch_node_message(message);
+				break;
+			case set_next:
+				no_free = handle_set_next(message);
+				break;
 		    case quit:
 			    no_free = handle_quit();
 			    break;
