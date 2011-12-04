@@ -47,11 +47,11 @@ enum rpc_opcode {
 	single_node_add_resp,
 	stitch_node,
 	add_node_ack,
+	set_next,
 	last_oob_opcode,
 
 	node_messages = 48,
 	add_node,
-	set_prev,
 	invalidate_finger,
 	update_next,
 	request_transfer,

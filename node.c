@@ -197,7 +197,7 @@ void start_node_add(char *buf)
     {
         node_id_t id;
 
-        id = atoi(msg) - 1;
+        id = atoi(msg) + 1;
 
         dbg("Additional node being added, sending to node: %d\n", id);
 
@@ -277,19 +277,24 @@ void initiate_insert(message_t *recv_msg)
 
     new_node.invalid = 0;
 
-    snprintf(msg, 99, "%d %d %d %d %d", stitch_node, next_node.id,
-             next_node.port, my_id, my_port);
+    snprintf(msg, 99, "%d %d %d %d %d", stitch_node, my_id,
+             my_port, prev_node.id, prev_node.port);
     udp_send(&new_node, msg);
 
-    snprintf(msg, 99, "%d %d %d", set_prev, new_node.id, new_node.port);
+    dbg("sent message (%d): %s\n", new_node.port, msg);
+    snprintf(msg, 99, "%d %d %d", set_next, new_node.id, new_node.port);
     udp_send(&next_node, msg);
+    dbg("sent message (%d): %s\n", prev_node.port, msg);
 
     has_no_peers = 0;
+
+    prev_node.port = new_node.port;
+    prev_node.id = new_node.id;
 
     dbg_finger();
 }
 
-void handle_set_prev(char *msg)
+void handle_set_next(char *msg)
 {
     int opcode;
     sscanf(msg, "%d %d %d", &opcode, &(prev_node.id),
@@ -323,10 +328,6 @@ void handle_stitch_node_message(char *buf)
 
 void finish_adding_node(char *buf)
 {
-    int opcode;
-
-    sscanf(buf, "%d %d %d", &opcode, &(next_node.id), &(next_node.port));
-    next_node.invalid = 0;
 
     has_no_peers = 0;
     dbg_finger();
@@ -466,8 +467,8 @@ void recv_handler()
                 finish_adding_node(buf);
                 break;
 
-	    case set_prev:
-		handle_set_prev(buf);
+	    case set_next:
+		handle_set_next(buf);
 		break;
 
             default:
