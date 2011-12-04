@@ -295,7 +295,6 @@ int initiate_insert(message_t *message)
     prev_node.id = new_node.id;
 
     dbg_finger();
-    message_direct(new_node.port, request_transfer, "", my_port);
 
     return 0;
 }
@@ -340,6 +339,7 @@ int handle_stitch_node_message(message_t *msg)
 
     has_no_peers = 0;
     dbg_finger();
+    message_direct(msg->return_node.port, request_transfer, "", my_port);
 	return 0;
 }
 
