@@ -151,6 +151,19 @@ void init_socket()
 
 }
 
+void init_finger_table()
+{
+	int i;
+
+	dbg("Initalizing finger table\n");
+
+	for (i = 1; i < m_value; i++)
+	{
+		dbg("sending node lookup for %d\n", ((1 << i) + my_id) % gMaxNodeCount);
+		send_node_lookup(((1 << i) + my_id) % gMaxNodeCount);
+	}
+}
+
 void send_port_to_listener(int ret_port)
 {
     struct sockaddr_in destaddr;
@@ -267,6 +280,7 @@ void insert_first_node(char *buf)
     has_no_peers = 0;
 
     message_direct(node_zero.port, request_transfer, "", my_port);
+	init_finger_table();
 
     dbg_finger();
 }
@@ -344,14 +358,10 @@ int handle_stitch_node_message(message_t *msg)
     has_no_peers = 0;
     dbg_finger();
     message_direct(msg->return_node.port, request_transfer, "", my_port);
+	init_finger_table();
 	return 0;
 }
 
-void finish_adding_node(char *buf)
-{
-    has_no_peers = 0;
-    dbg_finger();
-}
 
 /**
  * Returns non zero if this node is the destination
@@ -437,9 +447,14 @@ int handle_node_lookup_ack(message_t *message)
 {
     node_id_t dest = atoi(message->content);
     unsigned int table_index = finger_table_index(dest);
+	dbg("Adjusting finger table entry %d to read %d:%d\n", table_index, message->source_node.id, message->source_node.port);
     if (finger_table[table_index].invalid) {
         finger_table[table_index].id = message->source_node.id;
+	finger_table[table_index].port = message->source_node.port;
+	finger_table[table_index].invalid = 0;
     }
+
+	dbg_finger();
 
     return 0;
 }
@@ -501,10 +516,6 @@ void recv_handler()
 
             case single_node_add_resp:
                 insert_first_node(buf);
-                break;
-
-            case add_node_ack:
-                finish_adding_node(buf);
                 break;
 
             default:
@@ -693,6 +704,7 @@ void forward_message(const message_t *message)
 
     node_t *dest = finger_table + finger_table_index(message->destination);
     while (dest->invalid) --dest; // Skip invalid entries
+	dbg("forwarding message to %d\n",  dest->id);
 
     marshal_message(buf, message);
 
