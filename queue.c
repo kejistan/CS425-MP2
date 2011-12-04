@@ -5,7 +5,7 @@
 
 queue_t *queue_init(void)
 {
-	return calloc(sizeof(queue_t), 0);
+	return calloc(sizeof(queue_t), 1);
 }
 
 void queue_free(queue_t *queue)
@@ -23,12 +23,14 @@ void queue_free(queue_t *queue)
 
 int queue_empty(queue_t *queue)
 {
-	return !!queue->head;
+	return !queue->head;
 }
 
 void enqueue(queue_t *queue, message_t *message)
 {
 	message_t *current = queue->head;
+
+	assert(!message->next);
 
 	++queue->size;
 
@@ -52,5 +54,6 @@ message_t *dequeue(queue_t *queue)
 		--queue->size;
 	}
 
+	current->next = NULL;
 	return current;
 }

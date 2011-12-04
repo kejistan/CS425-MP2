@@ -574,7 +574,6 @@ void message_free(message_t *message)
 /**
  * Handles recieved node to node messages by either forwarding the message closer
  * to its destination node, or if it is the destination by handling the contents
- * @todo implement finger table correction
  */
 void message_recieve(const char *buf, port_t source_port)
 {
@@ -758,6 +757,9 @@ int main(int argc, char *argv[])
     }
 
     dbg_init();
+
+    message_queue = queue_init();
+    recycle_queue = queue_init();
 
     init_socket();
 
