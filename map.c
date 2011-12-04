@@ -33,7 +33,7 @@ void free_hash_table(hash_table_t *map)
 	free(map);
 }
 
-void hash_insert(hash_table_t *map, int32_t key, void *value)
+void hash_insert(hash_table_t *map, unsigned key[5], void *value)
 {
 	assert(map);
 	assert(map->hash);
@@ -42,13 +42,17 @@ void hash_insert(hash_table_t *map, int32_t key, void *value)
 	size_t table_index = (*map->hash)(key);
 
 	hash_bucket_t *store = malloc(sizeof(hash_bucket_t));
-	store->key = key;
+	memcpy(store->key, key, sizeof(key));
 	store->value = value;
 	store->next = map->table[table_index];
 	map->table[table_index] = store;
 }
 
-void hash_remove(hash_table_t *map, int32_t key)
+/**
+ * Removes the item mapped to key from the table
+ * @return 0 on success, 1 on not found
+ */
+int hash_remove(hash_table_t *map, unsigned key[5])
 {
 	assert(map);
 	assert(map->hash);
@@ -57,13 +61,29 @@ void hash_remove(hash_table_t *map, int32_t key)
 	size_t table_index = (*map->hash)(key);
 
 	hash_bucket_t *bucket = map->table[table_index];
-	map->table[table_index] = bucket->next;
+	hash_bucket_t **prev = &map->table[table_index];
+	while (bucket && !(bucket->key[0] == key[0] && bucket->key[1] == key[1] &&
+	                   bucket->key[2] == key[2] && bucket->key[3] == key[3] &&
+	                   bucket->key[4] == key[4])) {
+		prev = &bucket->next;
+		bucket = bucket->next;
+	}
 
-	free(bucket->value);
-	free(bucket);
+	if (bucket) {
+		*prev = bucket->next;
+		free(bucket->value);
+		free(bucket);
+		return 0;
+	}
+
+	return 1;
 }
 
-void *hash_find(hash_table_t *map, int32_t key)
+/**
+ * Returns the value of the item stored at key in the table
+ * @return the value associated with key or NULL if not found
+ */
+void *hash_find(hash_table_t *map, unsigned key[5])
 {
 	assert(map);
 	assert(map->hash);
@@ -72,7 +92,9 @@ void *hash_find(hash_table_t *map, int32_t key)
 	size_t table_index = (*map->hash)(key);
 
 	hash_bucket_t *store = map->table[table_index];
-	while (store && store->key != key) {
+	while (store && !(store->key[0] == key[0] && store->key[1] == key[1] &&
+	                  store->key[2] == key[2] && store->key[3] == key[3] &&
+	                  store->key[4] == key[4])) {
 		store = store->next;
 	}
 

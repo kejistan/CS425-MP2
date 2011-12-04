@@ -111,7 +111,8 @@ void message_direct(port_t destination, int type, char *content, port_t return_p
 void forward_message(const message_t *message);
 unsigned int finger_table_index(node_id_t id);
 size_t path_distance_to_id(node_id_t id);
-size_t hash_function(int32_t key);
+size_t hash_function(unsigned key[5]);
+node_id_t node_id_from_key(unsigned key[5]);
 
 void send_node_lookup(node_id_t lookup_id);
 void send_invalidate_finger(node_id_t invalidate_target, node_id_t invalidate_destination, node_t *message_destination);
@@ -160,7 +161,7 @@ void init_finger_table()
 
 	for (i = 1; i < m_value; i++)
 	{
-		dbg("sending node lookup for %d\n", ((1 << i) + my_id) % gMaxNodeCount);
+		dbg("sending node lookup for %zu\n", ((1 << i) + my_id) % gMaxNodeCount);
 		send_node_lookup(((1 << i) + my_id) % gMaxNodeCount);
 	}
 }
@@ -332,9 +333,20 @@ void initiate_quit(void)
 /**
  * Start adding a file
  */
-void initiate_add_file(char *buf)
+void initiate_add_file(const char *buf)
 {
-	assert(!"Adding files unimplemented!");
+	int opcode;
+	int content_offset;
+	unsigned key[5];
+	char content[kMaxMessageSize];
+
+	sscanf(buf, "%d %u %u %u %u %u %n", &opcode, &key[0], &key[1], &key[2],
+	       &key[3], &key[4], &content_offset);
+	snprintf(content, kMaxMessageSize, "%u %u %u %u %u %s", key[0], key[1], key[2],
+	         key[3], key[4], buf + content_offset);
+
+	node_id_t dest = node_id_from_key(key);
+	message(dest, file_transfer, content, gListenerPort);
 }
 
 int handle_set_next(message_t *msg)
@@ -371,6 +383,27 @@ int handle_stitch_node_message(message_t *msg)
 	return 0;
 }
 
+/**
+ * Handle an add file message by adding the file to our local hash table
+ */
+int handle_file_transfer(message_t *msg)
+{
+	unsigned key[5];
+	char *file_contents;
+	int content_offset;
+	char reply_contents[kMaxMessageSize];
+
+	sscanf(msg->content, "%u %u %u %u %u %n", &key[0], &key[1], &key[2], &key[3],
+	       &key[4], &content_offset);
+	file_contents = msg->content + content_offset;
+	hash_insert(gMap, key, file_contents);
+
+	snprintf(reply_contents, kMaxMessageSize, "%u %u %u %u %u %u", key[0], key[1],
+	         key[2], key[3], key[4], node_id_from_key(key));
+	message_direct(msg->return_node.port, file_transfer_ack, reply_contents, my_port);
+
+	return 0;
+}
 
 /**
  * Returns non zero if this node is the destination
@@ -408,6 +441,14 @@ unsigned int finger_table_index(node_id_t target_id)
 }
 
 /**
+ * Return the node id that "owns" this key
+ */
+node_id_t node_id_from_key(unsigned key[5])
+{
+	return key[4] % gMaxNodeCount;
+}
+
+/**
  * Invalidate finger table entries according to a recieved message
  */
 int handle_invalidate_finger(message_t *message)
@@ -429,7 +470,7 @@ int handle_invalidate_finger(message_t *message)
 	dbg("invalidating finger using table index of %d, %d\n", table_index, info.destination);
     for (size_t i = 0; i <= table_index; ++i) {
         if (finger_table[i].id == info.target && !finger_table[i].invalid) {
-			dbg("invalidating finger %d:%d at pos %d\n", finger_table[i].id,
+			dbg("invalidating finger %d:%d at pos %zu\n", finger_table[i].id,
 					finger_table[i].port, i);
 			finger_table[i].invalid = 1;
             send_node_lookup(((1 << table_index) + my_id) % gMaxNodeCount);
@@ -530,6 +571,10 @@ void recv_handler()
             case single_node_add_resp:
                 insert_first_node(buf);
                 break;
+
+            case l_add_file:
+	            initiate_add_file(buf);
+	            break;
 
             default:
                 message_recieve(buf, ntohs(fromaddr.sin_port));
@@ -724,7 +769,52 @@ void forward_message(const message_t *message)
 
     marshal_message(buf, message);
 
+    if (dest == my_id) {
+	    process_message(my_id);
+	    return;
+    }
+
     udp_send(dest->port, buf);
+}
+
+int process_message(message_t *message)
+{
+	int no_free = 0;
+
+	switch (message->type) {
+	case invalidate_finger:
+		no_free = handle_invalidate_finger(message);
+		break;
+	case node_lookup:
+		no_free = handle_node_lookup(message);
+		break;
+	case node_lookup_ack:
+		no_free = handle_node_lookup_ack(message);
+		break;
+	case add_node:
+		no_free = initiate_insert(message);
+		break;
+	case stitch_node:
+		no_free = handle_stitch_node_message(message);
+		break;
+	case set_next:
+		no_free = handle_set_next(message);
+		break;
+	case request_transfer:
+		no_free = handle_request_transfer(message);
+		break;
+	case file_transfer:
+		no_free = handle_file_transfer(message);
+		break;
+	case quit:
+		no_free = handle_quit();
+		break;
+	default:
+		fprintf(stderr, "Recieved unknown message type: %d\n", message->type);
+		break;
+	}
+
+	return no_free;
 }
 
 /**
@@ -737,35 +827,8 @@ void process_queue(void)
 	while (!queue_empty(gMessageQueue)) {
 		int no_free = 0;
 		message_t *message = dequeue(gMessageQueue);
-		switch (message->type) {
-		case invalidate_finger:
-			no_free = handle_invalidate_finger(message);
-			break;
-		case node_lookup:
-			no_free = handle_node_lookup(message);
-			break;
-		case node_lookup_ack:
-			no_free = handle_node_lookup_ack(message);
-			break;
-		case add_node:
-			no_free = initiate_insert(message);
-			break;
-		case stitch_node:
-			no_free = handle_stitch_node_message(message);
-			break;
-		case set_next:
-			no_free = handle_set_next(message);
-			break;
-		case request_transfer:
-			no_free = handle_request_transfer(message);
-			break;
-		case quit:
-			no_free = handle_quit();
-			break;
-		default:
-			fprintf(stderr, "Recieved unknown message type: %d\n", message->type);
-			break;
-		}
+
+		no_free = process_message(message);
 
 		if (no_free) {
 			enqueue(gRecycleQueue, message);
@@ -779,9 +842,9 @@ void process_queue(void)
 	gRecycleQueue = temp;
 }
 
-size_t hash_function(int32_t key)
+size_t hash_function(unsigned key[5])
 {
-	return key % kTableSize;
+	return key[0] % kTableSize;
 }
 
 int main(int argc, char *argv[])
@@ -810,7 +873,7 @@ int main(int argc, char *argv[])
 
     if (report_port < 1 || report_port > 65535)
     {
-        fprintf(stderr, "Report port is incorrect\n");
+	    fprintf(stderr, "Report port is incorrect %d\n", report_port);
         exit(1);
     }
 
