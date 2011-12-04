@@ -153,6 +153,7 @@ void init_socket()
 
 void init_finger_table()
 {
+	return;
 	int i;
 
 	dbg("Initalizing finger table\n");
@@ -246,7 +247,7 @@ void start_node_add(char *buf)
 
         has_no_peers = 0;
 
-        dbg_finger();
+        //dbg_finger();
     }
 }
 
@@ -282,7 +283,7 @@ void insert_first_node(char *buf)
     message_direct(node_zero.port, request_transfer, "", my_port);
 	init_finger_table();
 
-    dbg_finger();
+    //dbg_finger();
 }
 
 int initiate_insert(message_t *message)
@@ -312,7 +313,7 @@ int initiate_insert(message_t *message)
     prev_node.port = new_node.port;
     prev_node.id = new_node.id;
 
-    dbg_finger();
+    //dbg_finger();
 
     return 0;
 }
@@ -347,7 +348,7 @@ int handle_set_next(message_t *msg)
     finger_table[0].port = next_node.port;
     finger_table[0].invalid = 0;
 
-    dbg_finger();
+    //dbg_finger();
 	return 0;
 }
 
@@ -364,7 +365,7 @@ int handle_stitch_node_message(message_t *msg)
     finger_table[0].invalid = 0;
 
     has_no_peers = 0;
-    dbg_finger();
+    //dbg_finger();
     message_direct(msg->return_node.port, request_transfer, "", my_port);
 	init_finger_table();
 	return 0;
@@ -425,12 +426,16 @@ int handle_invalidate_finger(message_t *message)
     // info.target up to and including the one that holds info.destination
     // by marking them as invalid and issuing a lookup for the valid target
     unsigned int table_index = finger_table_index(info.destination);
+	dbg("invalidating finger using table index of %d, %d\n", table_index, info.destination);
     for (size_t i = 0; i <= table_index; ++i) {
         if (finger_table[i].id == info.target && !finger_table[i].invalid) {
-            finger_table[i].invalid = 1;
+			dbg("invalidating finger %d:%d at pos %d\n", finger_table[i].id,
+					finger_table[i].port, i);
+			finger_table[i].invalid = 1;
             send_node_lookup(((1 << table_index) + my_id) % gMaxNodeCount);
         }
     }
+	finger_table[0].invalid = 0;
 
     return 0;
 }
@@ -462,7 +467,7 @@ int handle_node_lookup_ack(message_t *message)
 	finger_table[table_index].invalid = 0;
     }
 
-	dbg_finger();
+	//dbg_finger();
 
     return 0;
 }
@@ -624,6 +629,7 @@ void message_recieve(const char *buf, port_t source_port)
             source.id = -1;
             source.port = source_port;
             source.invalid = 0;
+			dbg("sending invalidate finger: %d %d %d\n", my_id, message->destination, source.port);
             send_invalidate_finger(my_id, message->destination, &source);
         }
 
@@ -689,6 +695,7 @@ void message_direct(port_t dest, int type, char *content, port_t return_port)
 void send_invalidate_finger(node_id_t invalidate_target, node_id_t invalidate_destination,
         node_t *message_destination)
 {
+	return;
     char content[kMaxMessageSize];
     snprintf(content, kMaxMessageSize, "%d %d", invalidate_target,
             invalidate_destination);
@@ -713,6 +720,7 @@ void forward_message(const message_t *message)
     node_t *dest = finger_table + finger_table_index(message->destination);
     while (dest->invalid) --dest; // Skip invalid entries
 	dbg("forwarding message to %d\n",  dest->id);
+	dbg_finger();
 
     marshal_message(buf, message);
 
