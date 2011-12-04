@@ -12,13 +12,13 @@
 #include "mp2.h"
 #include "sha1.h"
 
-typedef struct adding_file
+typedef struct file_list
 {
 	char *filename;
 	unsigned key[5];
-	struct adding_file *next;
-	struct adding_file *prev;
-} adding_file_t;
+	struct file_list *next;
+	struct file_list *prev;
+} file_list_t;
 
 int listener_port;
 int node_zero_port;
@@ -26,18 +26,24 @@ int node_zero_port;
 int m_value;
 
 SHA1Context gSHAContext;
-adding_file_t *gAddingList;
+file_list_t *gAddingList;
+file_list_t *gFinding;
 
 static int sock;
 
 pthread_t net_recv_thread;
 
+file_list_t *file_list_init(void)
+{
+	return calloc(sizeof(file_list_t), 1);
+}
+
 /**
  * Remove a file from the current adding list by key and return the filename
  */
-char *remove_from_adding(unsigned key[5])
+char *remove_from_list(file_list_t *list, unsigned key[5])
 {
-	adding_file_t *current = gAddingList;
+	file_list_t *current = list;
 	while (current && !(current->key[0] == key[0]
 	                    && current->key[1] == key[1]
 	                    && current->key[2] == key[2]
@@ -61,13 +67,13 @@ char *remove_from_adding(unsigned key[5])
 /**
  * Add a file to the list of currently adding files
  */
-void add_to_adding(unsigned key[5], const char *filename)
+void add_to_list(file_list_t *list, unsigned key[5], const char *filename)
 {
-	adding_file_t *current = calloc(sizeof(adding_file_t), 1);
+	file_list_t *current = calloc(sizeof(file_list_t), 1);
 	memcpy(current->key, key, 5 * sizeof(unsigned));
 	current->filename = strdup(filename);
-	current->next = gAddingList;
-	gAddingList = current;
+	current->next = list->next;
+	list->next = current;
 }
 
 void handle_add_file_complete(char *buf)
@@ -82,7 +88,7 @@ void handle_add_file_complete(char *buf)
 	       &ignore, &ignore, &ignore, &key[0], &key[1], &key[2], &key[3],
 	       &key[4], &logical_node);
 
-	char *filename = remove_from_adding(key);
+	char *filename = remove_from_list(gAddingList, key);
 
 	if (!filename) {
 		fprintf(stderr, "Recieved file add confirmation for unknown file\n");
@@ -92,6 +98,59 @@ void handle_add_file_complete(char *buf)
 	printf("Added file %s with hash %08x%08x%08x%08x%08x to node %d with logical"
 	       " node id %d\n", filename, key[0], key[1], key[2], key[3], key[4],
 	       node, logical_node);
+	free(filename);
+}
+
+void handle_find_file_complete(char *buf)
+{
+	int opcode;
+	unsigned key[5];
+	node_id_t node;
+	node_id_t logical_node;
+	char *file_contents;
+	int file_content_offset;
+	unsigned ignore;
+
+	sscanf(buf, "%d %u %u %u %u %u %u %u %u %u %u %u %n", &opcode, &node, &ignore,
+	       &ignore, &ignore, &ignore, &key[0], &key[1], &key[2], &key[3],
+	       &key[4], &logical_node, &file_content_offset);
+
+	char *filename = remove_from_list(gFinding, key);
+	file_contents = buf + file_content_offset;
+
+	if (!filename) {
+		fprintf(stderr, "Recieved file information for unknown file\n");
+		return;
+	}
+
+	printf("Found file '%s' with hash %08x%08x%08x%08x%08x on node %d with"
+	       " logical node id %d:\n\t%s\n", filename, key[0], key[1], key[2],
+	       key[3], key[4], node, logical_node, file_contents);
+	free(filename);
+}
+
+void handle_file_not_found(char *buf)
+{
+	int opcode;
+	unsigned key[5];
+	node_id_t node;
+	node_id_t logical_node;
+	unsigned ignore;
+
+	sscanf(buf, "%d %u %u %u %u %u %u %u %u %u %u %u", &opcode, &node, &ignore,
+	       &ignore, &ignore, &ignore, &key[0], &key[1], &key[2], &key[3],
+	       &key[4], &logical_node);
+
+	char *filename = remove_from_list(gFinding, key);
+
+	if (!filename) {
+		fprintf(stderr, "Recieved file not found for unknown file\n");
+		return;
+	}
+
+	printf("File '%s' was not found with hash %08x%08x%08x%08x%08x by node %d with"
+	       " logical node id %d\n", filename, key[0], key[1], key[2],
+	       key[3], key[4], node, logical_node);
 	free(filename);
 }
 
@@ -138,6 +197,12 @@ void *net_recv_handler(void *eh)
             case file_transfer_ack:
 	            handle_add_file_complete(buf);
 	            break;
+		case find_file_ack:
+			handle_find_file_complete(buf);
+			break;
+		case file_not_found:
+			handle_file_not_found(buf);
+			break;
 
 			case l_print:
 				buf[999] = 0;
@@ -307,7 +372,7 @@ void add_new_file(char *args)
 
 		unsigned *key = gSHAContext.Message_Digest;
 
-		add_to_adding(key, filename);
+		add_to_list(gAddingList, key, filename);
 		snprintf(buf, 255, "%d %u %u %u %u %u %s", l_add_file, key[0], key[1],
 		         key[2], key[3], key[4], value);
 		udp_send(buf);
@@ -326,7 +391,20 @@ void send_find_file_cmd(char *filename)
 {
 	char buf[256];
 
-	snprintf(buf, 255, "%d %s", l_find_file, filename);
+	printf("Finding file '%s'\n", filename);
+	SHA1Reset(&gSHAContext);
+	SHA1Input(&gSHAContext, (unsigned char *)filename, strlen(filename));
+
+	if (SHA1Result(&gSHAContext) == 0) {
+		fprintf(stderr, "Error calculating SHA1 Hash of %s\n", filename);
+		return;
+	}
+
+	unsigned *key = gSHAContext.Message_Digest;
+
+	add_to_list(gFinding, key, filename);
+	snprintf(buf, 255, "%d %u %u %u %u %u", l_find_file, key[0], key[1],
+	         key[2], key[3], key[4]);
 	udp_send(buf);
 }
 
@@ -368,6 +446,9 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "Incorrect value for m, must be between 5 and 10\n");
 		exit(1);
 	}
+
+	gAddingList = file_list_init();
+	gFinding = file_list_init();
 
 	listener_net_init();
 

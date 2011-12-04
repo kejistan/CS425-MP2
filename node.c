@@ -14,7 +14,7 @@
 
 #define kMaxMessageSize 1000
 #define kDirectDestination -1
-#define kTableSize 100
+#define kTableSize 10
 
 /**
  * Some debug related functions (and related variables)
@@ -252,6 +252,19 @@ void start_node_add(char *buf)
     }
 }
 
+/**
+ * Send a file not found message to the return port
+ */
+int reply_not_found(message_t *msg, unsigned key[5])
+{
+	char reply_contents[kMaxMessageSize];
+
+	snprintf(reply_contents, kMaxMessageSize, "%u %u %u %u %u %u", key[0], key[1],
+	         key[2], key[3], key[4], node_id_from_key(key));
+	message_direct(msg->return_node.port, file_not_found, reply_contents, my_port);
+	return 0;
+}
+
 int handle_request_transfer(message_t *msg)
 {
     adding_node_flag = 0;
@@ -349,6 +362,24 @@ void initiate_add_file(const char *buf)
 	message(dest, file_transfer, content, gListenerPort);
 }
 
+/**
+ * Start finding a file
+ */
+void initiate_find_file(const char *buf)
+{
+	int opcode;
+	unsigned key[5];
+	char content[kMaxMessageSize];
+
+	sscanf(buf, "%d %u %u %u %u %u", &opcode, &key[0], &key[1], &key[2],
+	       &key[3], &key[4]);
+	snprintf(content, kMaxMessageSize, "%u %u %u %u %u", key[0], key[1], key[2],
+	         key[3], key[4]);
+
+	node_id_t dest = node_id_from_key(key);
+	message(dest, find_file, content, gListenerPort);
+}
+
 int handle_set_next(message_t *msg)
 {
 
@@ -395,12 +426,42 @@ int handle_file_transfer(message_t *msg)
 
 	sscanf(msg->content, "%u %u %u %u %u %n", &key[0], &key[1], &key[2], &key[3],
 	       &key[4], &content_offset);
-	file_contents = msg->content + content_offset;
+	file_contents = strdup(msg->content + content_offset);
+	dbg("Inserting file with key %08x%08x%08x%08x%08x and contents: %s\n", key[0],
+	    key[1], key[2], key[3], key[4], file_contents);
 	hash_insert(gMap, key, file_contents);
 
 	snprintf(reply_contents, kMaxMessageSize, "%u %u %u %u %u %u", key[0], key[1],
 	         key[2], key[3], key[4], node_id_from_key(key));
 	message_direct(msg->return_node.port, file_transfer_ack, reply_contents, my_port);
+
+	return 0;
+}
+
+/**
+ * Handle a find file message by replying with the file or with a not found
+ */
+int handle_find_file(message_t *msg)
+{
+	unsigned key[5];
+	char *file_contents;
+	char reply_contents[kMaxMessageSize];
+
+	sscanf(msg->content, "%u %u %u %u %u", &key[0], &key[1], &key[2], &key[3],
+	       &key[4]);
+
+	file_contents = hash_find(gMap, key);
+	if (!file_contents) {
+		return reply_not_found(msg, key);
+	}
+
+	dbg("Found file for key %08x%08x%08x%08x%08x with contents: %s\n", key[0],
+	    key[1], key[2], key[3], key[4], file_contents);
+
+	snprintf(reply_contents, kMaxMessageSize, "%u %u %u %u %u %u %s", key[0], key[1],
+	         key[2], key[3], key[4], node_id_from_key(key), file_contents);
+
+	message_direct(msg->return_node.port, find_file_ack, reply_contents, my_port);
 
 	return 0;
 }
@@ -575,6 +636,10 @@ void recv_handler()
             case l_add_file:
 	            initiate_add_file(buf);
 	            break;
+
+        case l_find_file:
+	        initiate_find_file(buf);
+	        break;
 
             default:
                 message_recieve(buf, ntohs(fromaddr.sin_port));
@@ -805,6 +870,9 @@ int process_message(message_t *message)
 		break;
 	case file_transfer:
 		no_free = handle_file_transfer(message);
+		break;
+	case find_file:
+		no_free = handle_find_file(message);
 		break;
 	case quit:
 		no_free = handle_quit();

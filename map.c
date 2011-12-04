@@ -8,9 +8,9 @@ hash_table_t *new_hash_table(hash_function_t hash, size_t table_size)
 {
 	hash_table_t *map = malloc(sizeof(hash_table_t));
 	map->hash = hash;
-	map->table_size = table_size = sizeof(hash_bucket_t *) * table_size;
-	map->table = malloc(map->table_size);
-	memset(map->table, 0, map->table_size);
+	map->table_size = table_size;
+	map->table = malloc(map->table_size * sizeof(hash_table_t));
+	memset(map->table, 0, map->table_size * sizeof(hash_table_t));
 
 	return map;
 }
@@ -42,7 +42,7 @@ void hash_insert(hash_table_t *map, unsigned key[5], void *value)
 	size_t table_index = (*map->hash)(key);
 
 	hash_bucket_t *store = malloc(sizeof(hash_bucket_t));
-	memcpy(store->key, key, sizeof(key));
+	memcpy(store->key, key, sizeof(unsigned) * 5);
 	store->value = value;
 	store->next = map->table[table_index];
 	map->table[table_index] = store;
