@@ -70,6 +70,7 @@ enum rpc_opcode {
 	delete_file,
 	find_file,
 	file_not_found,
+	update_finger_table,
 	quit,
 
 	last_message_opcode

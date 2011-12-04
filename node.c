@@ -161,6 +161,7 @@ void init_finger_table()
 	for (i = 1; i < m_value; i++)
 	{
 		dbg("sending node lookup for %zu\n", ((1 << i) + my_id) % gMaxNodeCount);
+		finger_table[i].invalid = 1;
 		send_node_lookup(((1 << i) + my_id) % gMaxNodeCount);
 	}
 }
@@ -221,7 +222,7 @@ void start_node_add(char *buf)
         char resp[100];
         int opcode;
 
-	adding_node_flag = 1;
+		adding_node_flag = 1;
         sscanf(buf, "%d %d %d", &opcode, &(node.id), &(node.port));
 
         node.invalid = 0;
@@ -246,15 +247,42 @@ void start_node_add(char *buf)
         prev_node.invalid = 0;
 
         has_no_peers = 0;
+		init_finger_table();
 
         //dbg_finger();
     }
 }
 
+void send_update_finger_table()
+{
+	char msg[10];
+	snprintf(msg, 9, "%d", my_id);
+	init_finger_table();
+	message_direct(next_node.port, update_finger_table, msg, 0);
+}
+
+
 int handle_request_transfer(message_t *msg)
 {
+
     adding_node_flag = 0;
-    return 0;
+	send_update_finger_table();
+	return 0;
+
+}
+
+int handle_update_finger_table(message_t *msg)
+{
+	int dest_id;
+	
+	sscanf(msg->content, "%d", &dest_id);
+
+	if (dest_id != my_id)
+	{
+		init_finger_table();
+		message_direct(next_node.port, update_finger_table, msg->content, 0);
+	}
+	return 0;
 }
 
 void insert_first_node(char *buf)
@@ -487,8 +515,25 @@ int handle_invalidate_finger(message_t *message)
 int handle_node_lookup(message_t *msg)
 {
     char buf[kMaxMessageSize];
-    snprintf(buf, kMaxMessageSize, "%d", msg->destination);
-    message(msg->source_node.id, node_lookup_ack, buf, my_port);
+	int lookup = atoi(msg->content);
+	int tmp_id = my_id;
+
+	if (my_id == 0)
+	{
+		tmp_id = gMaxNodeCount;
+	}
+
+	if ((lookup <= tmp_id && lookup > prev_node.id) || lookup == my_id)
+	{
+	    //snprintf(buf, kMaxMessageSize, "%d", msg->destination);
+    	message_direct(msg->source_node.port, node_lookup_ack, msg->content, msg->return_node.port);
+	}
+	else
+	{
+		marshal_message(buf, msg);
+		udp_send(next_node.port, buf);
+	}
+
 
     return 0;
 }
@@ -500,7 +545,7 @@ int handle_node_lookup_ack(message_t *message)
 {
     node_id_t dest = atoi(message->content);
     unsigned int table_index = finger_table_index(dest);
-	dbg("Adjusting finger table entry %d to read %d:%d\n", table_index, message->source_node.id, message->source_node.port);
+	dbg("Adjusting finger table entry %d to read %d:%d for dest %d %s\n", table_index, message->source_node.id, message->source_node.port, dest, message->content);
     if (finger_table[table_index].invalid) {
         finger_table[table_index].id = message->source_node.id;
 	finger_table[table_index].port = message->source_node.port;
@@ -523,6 +568,7 @@ int handle_quit(void)
 		message_direct(prev_node.port, quit, NULL, my_port);
 	}
 	message_direct(next_node.port, quit, NULL, my_port);
+	dbg_finger();
 
 	exit(0);
 
@@ -750,7 +796,9 @@ void send_invalidate_finger(node_id_t invalidate_target, node_id_t invalidate_de
  */
 void send_node_lookup(node_id_t lookup_id)
 {
-    message(lookup_id, node_lookup, NULL, my_port);
+	char msg[20];
+	snprintf(msg, 19, "%d", lookup_id);
+    message_direct(finger_table[0].port, node_lookup, msg, my_port);
 }
 
 /**
@@ -811,6 +859,9 @@ int process_message(message_t *message)
 		break;
 	case quit:
 		no_free = handle_quit();
+		break;
+	case update_finger_table:
+		no_free = handle_update_finger_table(message);
 		break;
 	default:
 		fprintf(stderr, "Recieved unknown message type: %d\n", message->type);
