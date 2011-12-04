@@ -234,7 +234,6 @@ void start_node_add(char *buf)
 
 int handle_request_transfer(message_t *msg)
 {
-    message_direct(msg->return_node.port, join_finished, "", my_port);
     adding_node_flag = 0;
     return 0;
 }
