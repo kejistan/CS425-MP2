@@ -508,7 +508,7 @@ void recv_handler()
                 break;
 
             default:
-                message_recieve(buf, 0); // XXX I don't know how to get the port
+                message_recieve(buf, ntohs(fromaddr.sin_port));
                 break;
         }
     }
@@ -528,7 +528,7 @@ message_t *unmarshal_message(const char *buf)
 	                 &message->destination, &n);
 	if (ret != 6) {
 		fprintf(stderr, "Error unmarshaling message: %s\n"
-		        "\tExpected 7, recieved %d\n", buf, ret);
+		        "\tExpected 6 fields, recieved %d\n", buf, ret);
 		message_free(message);
 		return NULL;
 	}
@@ -558,10 +558,10 @@ int marshal_message(char *buf, const message_t *message)
     assert(!message->source_node.invalid);
     assert(!message->return_node.invalid);
 
-    // Handle messages with no content by appending a null terminator
+    // Handle messages with no content by using an empty string
     const char *content = message->content;
     if (!content) {
-        content = '\0';
+        content = "";
     }
 
     int characters = sprintf(buf, "%d %u %u %u %u %u %s", message->type,
