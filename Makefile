@@ -2,7 +2,7 @@ all: chord_sys mp2_node
 
 CC := gcc
 
-CFLAGS   += -Wno-unused-parameter -Wextra -Wall -g -DDEBUG -std=c99
+CFLAGS   += -Wextra -Wall -g -DDEBUG -std=c99 -Wno-unused-parameter
 CPPFLAGS += -MMD -MP
 
 sources := $(wildcard *.c)

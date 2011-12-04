@@ -14,6 +14,7 @@
 
 #define kMaxMessageSize 1000
 #define kDirectDestination -1
+#define kTableSize 100
 
 /**
  * Some debug related functions (and related variables)
@@ -98,8 +99,10 @@ node_t prev_node;
 
 struct mp2_node *finger_table;
 
-queue_t *message_queue;
-queue_t *recycle_queue;
+queue_t *gMessageQueue;
+queue_t *gRecycleQueue;
+
+hash_table_t *gMap;
 
 void recv_handler();
 void message_recieve(const char *buf, port_t source_port);
@@ -108,6 +111,7 @@ void message_direct(port_t destination, int type, char *content, port_t return_p
 void forward_message(const message_t *message);
 unsigned int finger_table_index(node_id_t id);
 size_t path_distance_to_id(node_id_t id);
+size_t hash_function(int32_t key);
 
 void send_node_lookup(node_id_t lookup_id);
 void send_invalidate_finger(node_id_t invalidate_target, node_id_t invalidate_destination, node_t *message_destination);
@@ -611,7 +615,7 @@ void message_recieve(const char *buf, port_t source_port)
         // We are the intended recipient, insert it onto our queue
         dbg("Queued:\n");
         dbg_message(message);
-	    enqueue(message_queue, message);
+	    enqueue(gMessageQueue, message);
 
 	    process_queue();
     }
@@ -700,11 +704,11 @@ void forward_message(const message_t *message)
  */
 void process_queue(void)
 {
-	assert(queue_empty(recycle_queue));
+	assert(queue_empty(gRecycleQueue));
 
-	while (!queue_empty(message_queue)) {
+	while (!queue_empty(gMessageQueue)) {
 		int no_free = 0;
-		message_t *message = dequeue(message_queue);
+		message_t *message = dequeue(gMessageQueue);
 		switch (message->type) {
 		case invalidate_finger:
 			no_free = handle_invalidate_finger(message);
@@ -736,15 +740,20 @@ void process_queue(void)
 		}
 
 		if (no_free) {
-			enqueue(recycle_queue, message);
+			enqueue(gRecycleQueue, message);
 		} else {
 			message_free(message);
 		}
 	}
 
-	queue_t *temp = message_queue;
-	message_queue = recycle_queue;
-	recycle_queue = temp;
+	queue_t *temp = gMessageQueue;
+	gMessageQueue = gRecycleQueue;
+	gRecycleQueue = temp;
+}
+
+size_t hash_function(int32_t key)
+{
+	return key % kTableSize;
 }
 
 int main(int argc, char *argv[])
@@ -779,8 +788,10 @@ int main(int argc, char *argv[])
 
     dbg_init();
 
-    message_queue = queue_init();
-    recycle_queue = queue_init();
+    gMessageQueue = queue_init();
+    gRecycleQueue = queue_init();
+
+    gMap = new_hash_table(&hash_function, kTableSize);
 
     init_socket();
 
