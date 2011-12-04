@@ -267,9 +267,9 @@ void initiate_insert(message_t *recv_msg)
 {
     node_t new_node;
     char msg[100];
-    int opcode;
 
-    sscanf(recv_msg->content, "%d %d %d", &opcode, &(new_node.id),
+    dbg("Ii: %s\n", recv_msg->content);
+    sscanf(recv_msg->content, "%d %d", &(new_node.id),
            &(new_node.port));
 
     new_node.invalid = 0;
