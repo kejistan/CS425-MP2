@@ -111,6 +111,7 @@ size_t path_distance_to_id(node_id_t id);
 
 void send_node_lookup(node_id_t lookup_id);
 void send_invalidate_finger(node_id_t invalidate_target, node_id_t invalidate_destination, node_t *message_destination);
+void process_queue(void);
 
 void init_socket()
 {
@@ -285,9 +286,9 @@ int initiate_insert(message_t *message)
     snprintf(msg, 99, "%d %d", prev_node.id, prev_node.port);
     message_direct(new_node.port, stitch_node, msg, my_port);
 
+    dbg("Sending set_next to: %d\n", prev_node.port);
     snprintf(msg, 99, "%d %d", new_node.id, new_node.port);
     message_direct(prev_node.port, set_next, msg, my_port);
-    dbg("sent message (%d): %s\n", prev_node.port, msg);
 
     has_no_peers = 0;
 
@@ -328,7 +329,6 @@ int handle_set_next(message_t *msg)
 
 int handle_stitch_node_message(message_t *msg)
 {
-    
 	next_node.id = msg->source_node.id;
 	next_node.port = msg->source_node.port;
     sscanf(msg->content, "%d %d", &(prev_node.id), &(prev_node.port));
@@ -614,51 +614,7 @@ void message_recieve(const char *buf, port_t source_port)
         dbg_message(message);
 	    enqueue(message_queue, message);
 
-	    assert(queue_empty(recycle_queue));
-
-	    while (!queue_empty(message_queue)) {
-		    int no_free = 0;
-		    message = dequeue(message_queue);
-		    switch (message->type) {
-		    case invalidate_finger:
-			    no_free = handle_invalidate_finger(message);
-			    break;
-		    case node_lookup:
-			    no_free = handle_node_lookup(message);
-			    break;
-		    case node_lookup_ack:
-			    no_free = handle_node_lookup_ack(message);
-			    break;
-		    case add_node:
-			    no_free = initiate_insert(message);
-			    break;
-			case stitch_node:
-				no_free = handle_stitch_node_message(message);
-				break;
-			case set_next:
-				no_free = handle_set_next(message);
-				break;
-			case request_transfer:
-				no_free = handle_request_transfer(message);
-				break;
-		    case quit:
-			    no_free = handle_quit();
-			    break;
-		    default:
-			    fprintf(stderr, "Recieved unknown message type: %d\n", message->type);
-			    break;
-		    }
-
-		    if (no_free) {
-			    enqueue(recycle_queue, message);
-		    } else {
-			    message_free(message);
-		    }
-	    }
-
-	    queue_t *temp = message_queue;
-	    message_queue = recycle_queue;
-	    recycle_queue = temp;
+	    process_queue();
     }
 }
 
@@ -738,6 +694,58 @@ void forward_message(const message_t *message)
     marshal_message(buf, message);
 
     udp_send(dest->port, buf);
+}
+
+/**
+ * Process all the currently queued messages
+ */
+void process_queue(void)
+{
+	assert(queue_empty(recycle_queue));
+
+	while (!queue_empty(message_queue)) {
+		int no_free = 0;
+		message_t *message = dequeue(message_queue);
+		switch (message->type) {
+		case invalidate_finger:
+			no_free = handle_invalidate_finger(message);
+			break;
+		case node_lookup:
+			no_free = handle_node_lookup(message);
+			break;
+		case node_lookup_ack:
+			no_free = handle_node_lookup_ack(message);
+			break;
+		case add_node:
+			no_free = initiate_insert(message);
+			break;
+		case stitch_node:
+			no_free = handle_stitch_node_message(message);
+			break;
+		case set_next:
+			no_free = handle_set_next(message);
+			break;
+		case request_transfer:
+			no_free = handle_request_transfer(message);
+			break;
+		case quit:
+			no_free = handle_quit();
+			break;
+		default:
+			fprintf(stderr, "Recieved unknown message type: %d\n", message->type);
+			break;
+		}
+
+		if (no_free) {
+			enqueue(recycle_queue, message);
+		} else {
+			message_free(message);
+		}
+	}
+
+	queue_t *temp = message_queue;
+	message_queue = recycle_queue;
+	recycle_queue = temp;
 }
 
 int main(int argc, char *argv[])
