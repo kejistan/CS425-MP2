@@ -109,6 +109,7 @@ void message_recieve(const char *buf, port_t source_port);
 void message(node_id_t destination, int type, char *content, port_t return_port);
 void message_direct(port_t destination, int type, char *content, port_t return_port);
 void forward_message(const message_t *message);
+int process_message(const message_t *message);
 unsigned int finger_table_index(node_id_t id);
 size_t path_distance_to_id(node_id_t id);
 size_t hash_function(unsigned key[5]);
@@ -255,7 +256,7 @@ void start_node_add(char *buf)
 /**
  * Send a file not found message to the return port
  */
-int reply_not_found(message_t *msg, unsigned key[5])
+int reply_not_found(const message_t *msg, unsigned key[5])
 {
 	char reply_contents[kMaxMessageSize];
 
@@ -265,7 +266,7 @@ int reply_not_found(message_t *msg, unsigned key[5])
 	return 0;
 }
 
-int handle_request_transfer(message_t *msg)
+int handle_request_transfer(const message_t *msg)
 {
     adding_node_flag = 0;
     return 0;
@@ -300,7 +301,7 @@ void insert_first_node(char *buf)
     //dbg_finger();
 }
 
-int initiate_insert(message_t *message)
+int initiate_insert(const message_t *message)
 {
     node_t new_node;
     char msg[100];
@@ -380,7 +381,25 @@ void initiate_find_file(const char *buf)
 	message(dest, find_file, content, gListenerPort);
 }
 
-int handle_set_next(message_t *msg)
+/**
+ * Start deleting a file
+ */
+void initiate_delete_file(const char *buf)
+{
+	int opcode;
+	unsigned key[5];
+	char content[kMaxMessageSize];
+
+	sscanf(buf, "%d %u %u %u %u %u", &opcode, &key[0], &key[1], &key[2],
+	       &key[3], &key[4]);
+	snprintf(content, kMaxMessageSize, "%u %u %u %u %u", key[0], key[1], key[2],
+	         key[3], key[4]);
+
+	node_id_t dest = node_id_from_key(key);
+	message(dest, delete_file, content, gListenerPort);
+}
+
+int handle_set_next(const message_t *msg)
 {
 
     sscanf(msg->content, "%d %d", &(next_node.id),
@@ -395,7 +414,7 @@ int handle_set_next(message_t *msg)
 	return 0;
 }
 
-int handle_stitch_node_message(message_t *msg)
+int handle_stitch_node_message(const message_t *msg)
 {
 	next_node.id = msg->source_node.id;
 	next_node.port = msg->source_node.port;
@@ -417,7 +436,7 @@ int handle_stitch_node_message(message_t *msg)
 /**
  * Handle an add file message by adding the file to our local hash table
  */
-int handle_file_transfer(message_t *msg)
+int handle_file_transfer(const message_t *msg)
 {
 	unsigned key[5];
 	char *file_contents;
@@ -441,7 +460,7 @@ int handle_file_transfer(message_t *msg)
 /**
  * Handle a find file message by replying with the file or with a not found
  */
-int handle_find_file(message_t *msg)
+int handle_find_file(const message_t *msg)
 {
 	unsigned key[5];
 	char *file_contents;
@@ -462,6 +481,33 @@ int handle_find_file(message_t *msg)
 	         key[2], key[3], key[4], node_id_from_key(key), file_contents);
 
 	message_direct(msg->return_node.port, find_file_ack, reply_contents, my_port);
+
+	return 0;
+}
+
+/**
+ * Handle a file delete request
+ */
+int handle_del_file(const message_t *msg)
+{
+	unsigned key[5];
+	char reply_contents[kMaxMessageSize];
+
+	sscanf(msg->content, "%u %u %u %u %u", &key[0], &key[1], &key[2], &key[3],
+	       &key[4]);
+
+	int ret = hash_remove(gMap, key);
+	if (ret == 1) {
+		return reply_not_found(msg, key);
+	}
+
+	dbg("Deleted file for key %08x%08x%08x%08x%08x\n", key[0],
+	    key[1], key[2], key[3], key[4]);
+
+	snprintf(reply_contents, kMaxMessageSize, "%u %u %u %u %u %u", key[0], key[1],
+	         key[2], key[3], key[4], node_id_from_key(key));
+
+	message_direct(msg->return_node.port, delete_file_ack, reply_contents, my_port);
 
 	return 0;
 }
@@ -512,7 +558,7 @@ node_id_t node_id_from_key(unsigned key[5])
 /**
  * Invalidate finger table entries according to a recieved message
  */
-int handle_invalidate_finger(message_t *message)
+int handle_invalidate_finger(const message_t *message)
 {
     invalidate_finger_content_t info;
     char *buf = message->content;
@@ -546,7 +592,7 @@ int handle_invalidate_finger(message_t *message)
  * Handle a node_lookup request by replying with the destination id (so that the
  * requesting node knows what message we are replying to)
  */
-int handle_node_lookup(message_t *msg)
+int handle_node_lookup(const message_t *msg)
 {
     char buf[kMaxMessageSize];
     snprintf(buf, kMaxMessageSize, "%d", msg->destination);
@@ -558,7 +604,7 @@ int handle_node_lookup(message_t *msg)
 /**
  * Handle a node_lookup response by checking our finger table to update the entry
  */
-int handle_node_lookup_ack(message_t *message)
+int handle_node_lookup_ack(const message_t *message)
 {
     node_id_t dest = atoi(message->content);
     unsigned int table_index = finger_table_index(dest);
@@ -636,6 +682,9 @@ void recv_handler()
             case l_add_file:
 	            initiate_add_file(buf);
 	            break;
+        case l_del_file:
+	        initiate_delete_file(buf);
+	        break;
 
         case l_find_file:
 	        initiate_find_file(buf);
@@ -832,17 +881,17 @@ void forward_message(const message_t *message)
 	dbg("forwarding message to %d\n",  dest->id);
 	dbg_finger();
 
-    marshal_message(buf, message);
-
     if (dest == my_id) {
-	    process_message(my_id);
+	    process_message(message);
 	    return;
     }
+
+    marshal_message(buf, message);
 
     udp_send(dest->port, buf);
 }
 
-int process_message(message_t *message)
+int process_message(const message_t *message)
 {
 	int no_free = 0;
 
@@ -873,6 +922,9 @@ int process_message(message_t *message)
 		break;
 	case find_file:
 		no_free = handle_find_file(message);
+		break;
+	case delete_file:
+		no_free = handle_del_file(message);
 		break;
 	case quit:
 		no_free = handle_quit();

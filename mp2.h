@@ -66,11 +66,12 @@ enum rpc_opcode {
 	find_file,
 	find_file_ack,
 	file_not_found,
+	delete_file,
+	delete_file_ack,
 	file_ack,
 	join_finished,
 	node_lookup,
 	node_lookup_ack,
-	delete_file,
 	quit,
 
 	last_message_opcode

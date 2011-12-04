@@ -129,6 +129,31 @@ void handle_find_file_complete(char *buf)
 	free(filename);
 }
 
+void handle_file_del_complete(char *buf)
+{
+	int opcode;
+	unsigned key[5];
+	node_id_t node;
+	node_id_t logical_node;
+	unsigned ignore;
+
+	sscanf(buf, "%d %u %u %u %u %u %u %u %u %u %u %u", &opcode, &node, &ignore,
+	       &ignore, &ignore, &ignore, &key[0], &key[1], &key[2], &key[3],
+	       &key[4], &logical_node);
+
+	char *filename = remove_from_list(gFinding, key);
+
+	if (!filename) {
+		fprintf(stderr, "Recieved file delete confirmation for unknown file\n");
+		return;
+	}
+
+	printf("Deleted file '%s' with hash %08x%08x%08x%08x%08x on node %d with"
+	       " logical node id %d\n", filename, key[0], key[1], key[2],
+	       key[3], key[4], node, logical_node);
+	free(filename);
+}
+
 void handle_file_not_found(char *buf)
 {
 	int opcode;
@@ -202,6 +227,9 @@ void *net_recv_handler(void *eh)
 			break;
 		case file_not_found:
 			handle_file_not_found(buf);
+			break;
+		case delete_file_ack:
+			handle_file_del_complete(buf);
 			break;
 
 			case l_print:
@@ -410,10 +438,23 @@ void send_find_file_cmd(char *filename)
 
 void send_del_file_cmd(char *filename)
 {
-    char buf[256];
+	char buf[256];
 
-    snprintf(buf, 255, "%d %s", l_del_file, filename);
-    udp_send(buf);
+	printf("Deleting file '%s'\n", filename);
+	SHA1Reset(&gSHAContext);
+	SHA1Input(&gSHAContext, (unsigned char *)filename, strlen(filename));
+
+	if (SHA1Result(&gSHAContext) == 0) {
+		fprintf(stderr, "Error calculating SHA1 Hash of %s\n", filename);
+		return;
+	}
+
+	unsigned *key = gSHAContext.Message_Digest;
+
+	add_to_list(gFinding, key, filename);
+	snprintf(buf, 255, "%d %u %u %u %u %u", l_del_file, key[0], key[1],
+	         key[2], key[3], key[4]);
+	udp_send(buf);
 }
 
 void send_get_table_cmd(char *args)
