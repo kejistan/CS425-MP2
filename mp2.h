@@ -41,6 +41,8 @@ enum rpc_opcode {
 	l_get_table,
 	l_quit,
 
+	l_print,
+
 	l_set_node_zero_port, // listener expects "%d %d", cmd, port
 
 	l_last_rpc_opcode,

@@ -62,6 +62,16 @@ void *net_recv_handler(void *eh)
 				}
 				break;
 
+			case l_print:
+				buf[999] = 0;
+				str = strstr(buf, " ");
+				if (str != NULL)
+				{
+					str++;
+					printf("%s\n", str);
+				}
+				break;
+
 			default:
 				break;
 		}
