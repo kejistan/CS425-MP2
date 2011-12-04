@@ -286,6 +286,17 @@ void initiate_insert(message_t *recv_msg)
     dbg_finger();
 }
 
+/**
+ * Start the processes of quitting by sending a quit message to the next node,
+ * but without actually quitting yet (the message will eventually loop around
+ * causing this node to quit last)
+ */
+void initiate_quit(void)
+{
+	dbg("Initiating Quit\n");
+	message_direct(next_node.port, quit, NULL, my_port);
+}
+
 void handle_set_prev(char *msg)
 {
     int opcode;
@@ -335,7 +346,7 @@ void finish_adding_node(char *buf)
 int is_destination(node_id_t dest)
 {
     return has_no_peers || (dest == kDirectDestination)
-	    || (dest <= my_id && dest > prev_node.id);
+	    || (((my_id == 0) || (dest <= my_id)) && dest > prev_node.id);
 }
 
 /**
@@ -460,7 +471,7 @@ void recv_handler()
         switch (cmd)
         {
             case l_quit:
-                exit(1);
+	            initiate_quit();
                 break;
 
             case start_add_node:
